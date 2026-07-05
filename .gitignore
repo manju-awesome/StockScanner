@@ -1,0 +1,20 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+
+# Environment / secrets
+.env
+*.key
+
+# Generated output (dashboards, scan CSVs, history)
+data/output/*
+!data/output/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db

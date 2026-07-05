@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Day Trade Scanner — 2026-06-25 10:40</title>
+<style>
+:root{
+  --bg:#070D17;--surface:#0F1923;--surface2:#162030;
+  --border:#1E2D45;--text:#E2E8F0;--muted:#4A6080;
+  --green:#10B981;--red:#EF4444;--amber:#F59E0B;--blue:#6366F1;
+  --font:'Inter','Segoe UI',system-ui,sans-serif;
+  --mono:'JetBrains Mono','Fira Code','Consolas',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;padding-bottom:80px}
+
+/* ── TOPBAR ── */
+.topbar{background:var(--surface);border-bottom:1px solid var(--border);
+  padding:12px 28px;display:flex;align-items:center;
+  justify-content:space-between;position:sticky;top:0;z-index:200;gap:12px;flex-wrap:wrap}
+.topbar-left{display:flex;align-items:center;gap:14px}
+.logo{font-size:.95rem;font-weight:800;letter-spacing:.1em;color:#fff;
+  font-family:var(--mono);white-space:nowrap}
+.mkt-chip{display:flex;gap:6px;align-items:center;font-size:.75rem;
+  background:var(--surface2);border:1px solid var(--border);
+  border-radius:6px;padding:4px 10px}
+.mkt-dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.ts{font-size:.72rem;color:var(--muted);font-family:var(--mono);white-space:nowrap}
+
+/* ── STAT BAR ── */
+.statbar{display:flex;gap:10px;padding:14px 28px;
+  border-bottom:1px solid var(--border);flex-wrap:wrap}
+.stat{background:var(--surface);border:1px solid var(--border);
+  border-radius:8px;padding:10px 16px;min-width:110px}
+.stat .n{font-size:1.7rem;font-weight:800;font-family:var(--mono)}
+.stat .l{font-size:.68rem;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.07em;margin-top:1px}
+
+/* ── CONTROLS ── */
+.controls{display:flex;gap:10px;padding:14px 28px;flex-wrap:wrap;
+  border-bottom:1px solid var(--border);align-items:center}
+.tab-btn{padding:5px 14px;border-radius:20px;font-size:.78rem;font-weight:600;
+  border:1px solid var(--border);cursor:pointer;background:transparent;
+  color:var(--muted);transition:all .15s}
+.tab-btn:hover,.tab-btn.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+.sort-label{font-size:.75rem;color:var(--muted);margin-left:auto}
+select{background:var(--surface2);border:1px solid var(--border);
+  color:var(--text);padding:5px 10px;border-radius:6px;font-size:.78rem}
+
+/* ── GRID ── */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));
+  gap:14px;padding:20px 28px}
+
+/* ── CARD ── */
+.card{background:var(--surface);border:1px solid var(--border);
+  border-radius:12px;overflow:hidden;transition:transform .15s,box-shadow .15s}
+.card:hover{transform:translateY(-3px);box-shadow:0 12px 30px rgba(0,0,0,.5)}
+.card-top{display:flex;justify-content:space-between;align-items:flex-start;
+  padding:14px 16px 8px}
+.tl{display:flex;flex-direction:column;gap:3px}
+.ticker{font-size:1.35rem;font-weight:900;font-family:var(--mono);
+  letter-spacing:.04em;color:#fff}
+.grp-tag{font-size:.65rem;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.08em}
+.tr{display:flex;align-items:center;gap:8px}
+.grade{font-size:1.1rem;font-weight:900;font-family:var(--mono);
+  border:2px solid;border-radius:6px;padding:2px 8px}
+.score-num{font-size:.85rem;color:var(--muted);font-family:var(--mono)}
+
+.card-price-row{display:flex;justify-content:space-between;
+  align-items:baseline;padding:0 16px 8px}
+.price{font-size:1.05rem;font-weight:700;font-family:var(--mono)}
+.gap-chip{font-size:.82rem;font-weight:700;font-family:var(--mono)}
+
+.trend-row{display:flex;gap:6px;padding:0 16px 10px;flex-wrap:wrap}
+.trend-pill{font-size:.7rem;font-weight:700;padding:3px 9px;
+  border-radius:20px;white-space:nowrap}
+
+.metrics-grid{display:grid;grid-template-columns:repeat(5,1fr);
+  border-top:1px solid var(--border)}
+.m{padding:7px 10px;border-right:1px solid var(--border);
+  border-bottom:1px solid var(--border)}
+.m:nth-child(5n){border-right:none}
+.ml{font-size:.62rem;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.04em;display:block}
+.mv{font-size:.82rem;font-weight:700;font-family:var(--mono);
+  display:block;margin-top:1px}
+
+.conf-header{display:flex;justify-content:space-between;align-items:center;
+  padding:8px 16px 4px;font-size:.68rem;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.06em}
+.conf-pips{font-size:.9rem;letter-spacing:2px;color:var(--green)}
+.conf-list{list-style:none;padding:0 16px 12px}
+.conf-list li{font-size:.74rem;color:#94A3B8;padding:3px 0 3px 14px;
+  position:relative;border-bottom:1px solid #1E2D4530;line-height:1.4}
+.conf-list li:last-child{border-bottom:none}
+.conf-list li::before{content:'›';position:absolute;left:0;color:var(--muted);
+  font-size:1rem;line-height:1.2}
+
+.badges{display:flex;gap:5px;padding:0 16px 12px;flex-wrap:wrap}
+.badge{font-size:.65rem;font-weight:800;padding:2px 8px;border-radius:20px}
+.b-green{color:var(--green);background:#10B98122}
+.b-gap-up{color:#00FF9C;background:#00FF9C15}
+.b-gap-dn{color:var(--red);background:#EF444422}
+.b-vwap-above{color:#00FF9C;background:#00FF9C15;font-size:.7rem}
+.b-vwap-below{color:#FB923C;background:#FB923C18;font-size:.7rem}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="logo">⬡ DAY TRADE SCANNER</span>
+    <div class="mkt-chip">
+      <span class="mkt-dot" style="background:#EF4444"></span>
+      <span>SPY Bearish · Above VWAP</span>
+    </div>
+    <div class="mkt-chip">
+      <span class="mkt-dot" style="background:#EF4444"></span>
+      <span>QQQ Bearish · Above VWAP</span>
+    </div>
+  </div>
+  <span class="ts">2026-06-25 10:40 ET</span>
+</div>
+
+<div class="statbar">
+  <div class="stat"><div class="n" style="color:#00FF9C">4</div><div class="l">A+ Setups</div></div>
+  <div class="stat"><div class="n" style="color:var(--green)">7</div><div class="l">A Grade</div></div>
+  <div class="stat"><div class="n" style="color:var(--amber)">1</div><div class="l">B Grade</div></div>
+  <div class="stat"><div class="n" style="color:var(--blue)">15</div><div class="l">3+ Confluences</div></div>
+  <div class="stat"><div class="n" style="color:#fff">15</div><div class="l">Total Scanned</div></div>
+</div>
+
+<div class="controls">
+  <button class="tab-btn" data-group="All" onclick="filterGroup(this)">All</button><button class="tab-btn" data-group="Index" onclick="filterGroup(this)">Index</button>
+  <span class="sort-label">Sort:</span>
+  <select onchange="sortCards(this.value)">
+    <option value="score">Score</option>
+    <option value="rvol">RVOL</option>
+    <option value="gap">Gap%</option>
+    <option value="ir">Intraday Range%</option>
+    <option value="atr">ATR%</option>
+  </select>
+</div>
+
+<div class="grid" id="card-grid">
+<div class="card" data-score="157" data-group="Index">
+  <div class="card-top">
+    <div class="tl">
+      <span class="ticker">DRAM</span>
+      <span class="grp-tag">Index</span>
+    </div>
+    <div class="tr">
+      <span class="grade" style="color:#00FF9C;border-color:#00FF9C">A+</span>
+      <span class="score-num">157</span>
+    </div>
+  </div>
+
+  <div class="card-price-row">
+    <span class="price">$75.96</span>
+    <span class="gap-chip" style="color:#10B981">Gap Up +13.14%</span>
+  </div>
+
+  <div class="trend-row">
+    <span class="trend-pill" style="background:#FB923C22;color:#FB923C">Pulling Back</span>
+    <span class="trend-pill" style="background:#10B98122;color:#10B981">Daily: Uptrend</span>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="m"><span class="ml">Price</span><span class="mv">$75.98</span></div>
+    <div class="m"><span class="ml">VWAP</span><span class="mv">$76.85</span></div>
+    <div class="m"><span class="ml">PM High</span><span class="mv">$79.83</span></div>
+    <div class="m"><span class="ml">PM Low</span><span class="mv">$69.93</span></div>
+    <div class="m"><span class="ml">ORB Hi (15m)</span><span class="mv">$79.60</span></div>
+    <div class="m"><span class="ml">ORB Lo (15m)</span><span class="mv">$77.12</span></div>
+    <div class="m"><span class="ml">RVOL</span><span class="mv">8.6x</span></div>
+    <div class="m"><span class="ml">ATR%</span><span class="mv">8.89%</span></div>
+    <div class="m"><span class="ml">IR%</span><span class="mv">8.30%</span></div>
+    <div class="m"><span class="ml">PDH</span><span class="mv">$71.79</span></div>
+  </div>
+
+  <div class="badges"><span class="badge b-vwap-below">▼ Below VWAP -1.16%</span><span class="badge b-green">9EMA✓</span><span class="badge b-green">20EMA✓</span><span class="badge b-gap-up">▲ GAP UP</span></div>
+
+  <div class="conf-header">
+    <span>Confluences</span>
+    <span class="conf-pips">●●●●●●</span>
+  </div>
+  <ul class="conf-list"><li>🔥 RVOL 8.6x — extreme volume surge</li><li>🚀 Gap Up +13.1% — high catalyst</li><li>🎯 ORB Breakdown below $77.12</li><li>✅ Above PDH $71.79 (+5.8%)</li><li>📈 Price > 9EMA & 20EMA (1-min) — momentum aligned</li><li>🏔 Daily Uptrend (price > 20MA > 50MA) — trend trade long</li></ul>
+</div><div class="card" data-score="118" data-group="Index">
+  <div class="card-top">
+    <div class="tl">
+      <span class="ticker">GOOGL</span>
+      <span class="grp-tag">Index</span>
+    </div>
+    <div class="tr">
+      <span class="grade" style="color:#00FF9C;border-color:#00FF9C">A+</span>
+      <span class="score-num">118</span>
+    </div>
+  </div>
+
+  <div class="card-price-row">
+    <span class="price">$342.22</span>
+    <span class="gap-chip" style="color:#EF4444">Gap Down -2.55%</span>
+  </div>
+
+  <div class="trend-row">
+    <span class="trend-pill" style="background:#6EE7B722;color:#6EE7B7">Recovering</span>
+    <span class="trend-pill" style="background:#EF444422;color:#EF4444">Daily: Downtrend</span>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="m"><span class="ml">Price</span><span class="mv">$342.24</span></div>
+    <div class="m"><span class="ml">VWAP</span><span class="mv">$338.60</span></div>
+    <div class="m"><span class="ml">PM High</span><span class="mv">$345.29</span></div>
+    <div class="m"><span class="ml">PM Low</span><span class="mv">$336.19</span></div>
+    <div class="m"><span class="ml">ORB Hi (15m)</span><span class="mv">$340.75</span></div>
+    <div class="m"><span class="ml">ORB Lo (15m)</span><span class="mv">$335.84</span></div>
+    <div class="m"><span class="ml">RVOL</span><span class="mv">2.1x</span></div>
+    <div class="m"><span class="ml">ATR%</span><span class="mv">3.53%</span></div>
+    <div class="m"><span class="ml">IR%</span><span class="mv">1.99%</span></div>
+    <div class="m"><span class="ml">PDH</span><span class="mv">$353.48</span></div>
+  </div>
+
+  <div class="badges"><span class="badge b-vwap-above">▲ Above VWAP +1.07%</span><span class="badge b-green">9EMA✓</span><span class="badge b-green">20EMA✓</span><span class="badge b-gap-dn">▼ GAP DN</span></div>
+
+  <div class="conf-header">
+    <span>Confluences</span>
+    <span class="conf-pips">●●●●●●</span>
+  </div>
+  <ul class="conf-list"><li>⚡ RVOL 2.1x — strong accumulation</li><li>↓ Gap Down -2.5%</li><li>✅ Above VWAP +1.1% (bullish bias)</li><li>🎯 ORB Breakout above $340.75</li><li>📈 Price > 9EMA & 20EMA (1-min) — momentum aligned</li><li>📉 Daily Downtrend — short-bias intraday</li></ul>
+</div><div class="card" data-score="110" data-group="Index">
+  <div class="card-top">
+    <div class="tl">
+      <span class="ticker">NVDA</span>
+      <span class="grp-tag">Index</span>
+    </div>
+    <div class="tr">
+      <span class="grade" style="color:#00FF9C;border-color:#00FF9C">A+</span>
+      <span class="score-num">110</span>
+    </div>
+  </div>
+
+  <div class="card-price-row">
+    <span class="price">$195.16</span>
+    <span class="gap-chip" style="color:#10B981">Gap Up +0.52%</span>
+  </div>
+
+  <div class="trend-row">
+    <span class="trend-pill" style="background:#EF444422;color:#EF4444">Bear</span>
+    <span class="trend-pill" style="background:#EF444422;color:#EF4444">Daily: Downtrend</span>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="m"><span class="ml">Price</span><span class="mv">$195.15</span></div>
+    <div class="m"><span class="ml">VWAP</span><span class="mv">$195.91</span></div>
+    <div class="m"><span class="ml">PM High</span><span class="mv">$202.19</span></div>
+    <div class="m"><span class="ml">PM Low</span><span class="mv">$199.00</span></div>
+    <div class="m"><span class="ml">ORB Hi (15m)</span><span class="mv">$200.79</span></div>
+    <div class="m"><span class="ml">ORB Lo (15m)</span><span class="mv">$195.37</span></div>
+    <div class="m"><span class="ml">RVOL</span><span class="mv">1.7x</span></div>
+    <div class="m"><span class="ml">ATR%</span><span class="mv">3.81%</span></div>
+    <div class="m"><span class="ml">IR%</span><span class="mv">4.51%</span></div>
+    <div class="m"><span class="ml">PDH</span><span class="mv">$201.67</span></div>
+  </div>
+
+  <div class="badges"><span class="badge b-vwap-below">▼ Below VWAP -0.38%</span><span class="badge b-green">9EMA✓</span><span class="badge b-green">20EMA✓</span><span class="badge b-gap-up">▲ GAP UP</span></div>
+
+  <div class="conf-header">
+    <span>Confluences</span>
+    <span class="conf-pips">●●●●●●</span>
+  </div>
+  <ul class="conf-list"><li>📊 RVOL 1.7x — above-avg volume</li><li>↑ Small Gap Up +0.5%</li><li>🎯 ORB Breakdown below $195.37</li><li>📍 Testing Prev-Day Low $196.58 (-0.7%)</li><li>📈 Price > 9EMA & 20EMA (1-min) — momentum aligned</li><li>📉 Daily Downtrend — short-bias intraday</li></ul>
+</div><div class="card" data-score="110" data-group="Index">
+  <div class="card-top">
+    <div class="tl">
+      <span class="ticker">NVDA</span>
+      <span class="grp-tag">Index</span>
+    </div>
+    <div class="tr">
+      <span class="grade" style="color:#00FF9C;border-color:#00FF9C">A+</span>
+      <span class="score-num">110</span>
+    </div>
+  </div>
+
+  <div class="card-price-row">
+    <span class="price">$195.16</span>
+    <span class="gap-chip" style="color:#10B981">Gap Up +0.52%</span>
+  </div>
+
+  <div class="trend-row">
+    <span class="trend-pill" style="background:#EF444422;color:#EF4444">Bear</span>
+    <span class="trend-pill" style="background:#EF444422;color:#EF4444">Daily: Downtrend</span>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="m"><span class="ml">Price</span><span class="mv">$195.15</span></div>
+    <div class="m"><span class="ml">VWAP</span><span class="mv">$195.91</span></div>
+    <div class="m"><span class="ml">PM High</span><span class="mv">$202.19</span></div>
+    <div class="m"><span class="ml">PM Low</span><span class="mv">$199.00</span></div>
+    <div class="m"><span class="ml">ORB Hi (15m)</span><span class="mv">$200.79</span></div>
+    <div class="m"><span class="ml">ORB Lo (15m)</span><span class="mv">$195.37</span></div>
+    <div class="m"><span class="ml">RVOL</span><span class="mv">1.7x</span></div>
+    <div class="m"><span class="ml">ATR%</span><span class="mv">3.81%</span></div>
+    <div class="m"><span class="ml">IR%</span><span class="mv">4.51%</span></div>
+    <div class="m"><span class="ml">PDH</span><span class="mv">$201.67</span></div>
+  </div>
+
+  <div class="badges"><span class="badge b-vwap-below">▼ Below VWAP -0.38%</span><span class="badge b-green">9EMA✓</span><span class="badge b-green">20EMA✓</span><span class="badge b-gap-up">▲ GAP UP</span></div>
+
+  <div class="conf-header">
+    <span>Confluences</span>
+    <span class="conf-pips">●●●●●●</span>
+  </div>
+  <ul class="conf-list"><li>📊 RVOL 1.7x — above-avg volume</li><li>↑ Small Gap Up +0.5%</li><li>🎯 ORB Breakdown below $195.37</li><li>📍 Testing Prev-Day Low $196.58 (-0.7%)</li><li>📈 Price > 9EMA & 20EMA (1-min) — momentum aligned</li><li>📉 Daily Downtrend — short-bias intraday</li></ul>
+</div><div class="card" data-score="98" data-group="Index">
+  <div class="card-top">
+    <div class="tl">
+      <span class="ticker">AVGO</span>
+      <span class="grp-tag">Index</span>
+    </div>
+    <div class="tr">
+      <span class="grade" style="color:#10B981;border-color:#10B981">A</span>
+      <span class="score-num">98</span>
+    </div>
+  </div>
+
+  <div class="card-price-row">
+    <span class="price">$380.69</span>
+    <span class="gap-chip" style="color:#10B981">Gap Up +1.21%</span>
+  </div>
+
+  <div class="trend-row">
+    <span class="trend-pill" style="background:#EF444422;color:#EF4444">Bear</span>
+    <span class="trend-pill" style="background:#EF444422;color:#EF4444">Daily: Downtrend</span>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="m"><span class="ml">Price</span><span class="mv">$380.69</span></div>
+    <div class="m"><span class="ml">VWAP</span><span class="mv">$380.80</span></div>
+    <div class="m"><span class="ml">PM High</span><span class="mv">$394.62</span></div>
+    <div class="m"><span class="ml">PM Low</span><span class="mv">$382.07</span></div>
+    <div class="m"><span class="ml">ORB Hi (15m)</span><span class="mv">$388.80</span></div>
+    <div class="m"><span class="ml">ORB Lo (15m)</span><span class="mv">$380.71</span></div>
+    <div class="m"><span class="ml">RVOL</span><span class="mv">1.4x</span></div>
+    <div class="m"><span class="ml">ATR%</span><span class="mv">5.21%</span></div>
+    <div class="m"><span class="ml">IR%</span><span class="mv">4.32%</span></div>
+    <div class="m"><span class="ml">PDH</span><span class="mv">$388.74</span></div>
+  </div>
+
+  <div class="badges"><span class="badge b-vwap-below">▼ Below VWAP -0.03%</span><span class="badge b-green">9EMA✓</span><span class="badge b-green">20EMA✓</span><span class="badge b-gap-up">▲ GAP UP</span></div>
+
+  <div class="conf-header">
+    <span>Confluences</span>
+    <span class="conf-pips">●●●●●●</span>
+  </div>
+  <ul class="conf-list"><li>↑ Small Gap Up +1.2%</li><li>〰 Hugging VWAP (-0.0%) — inflection zone</li><li>🎯 ORB Breakdown below $380.71</li><li>📈 Price > 9EMA & 20EMA (1-min) — momentum aligned</li><li>📉 Daily Downtrend — short-bias intraday</li><li>💨 ATR 5.2% — high daily volatility</li></ul>
+</div><div class="card" data-score="93" data-group="Index">
+  <div class="card-top">
+    <div class="tl">
+      <span class="ticker">QQQ</span>
+      <span class="grp-tag">Index</span>
+    </div>
+    <div class="tr">
+      <span class="grade" style="color:#10B981;border-color:#10B981">A</span>
+      <span class="score-num">93</span>
+    </div>
+  </div>
+
+  <div class="card-price-row">
+    <span class="price">$714.77</span>
+    <span class="gap-chip" style="color:#10B981">Gap Up +2.15%</span>
+  </div>
+
+  <div class="trend-row">
+    <span class="trend-pill" style="background:#FB923C22;color:#FB923C">Pulling Back</span>
+    <span class="trend-pill" style="background:#64748B22;color:#64748B">Daily: Pullback</span>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="m"><span class="ml">Price</span><span class="mv">$714.80</span></div>
+    <div class="m"><span class="ml">VWAP</span><span class="mv">$714.81</span></div>
+    <div class="m"><span class="ml">PM High</span><span class="mv">$728.42</span></div>
+    <div class="m"><span class="ml">PM Low</span><span class="mv">$710.62</span></div>
+    <div class="m"><span class="ml">ORB Hi (15m)</span><span class="mv">$726.76</span></div>
+    <div class="m"><span class="ml">ORB Lo (15m)</span><span class="mv">$714.77</span></div>
+    <div class="m"><span class="ml">RVOL</span><span class="mv">2.5x</span></div>
+    <div class="m"><span class="ml">ATR%</span><span class="mv">2.95%</span></div>
+    <div class="m"><span class="ml">IR%</span><span class="mv">3.04%</span></div>
+    <div class="m"><span class="ml">PDH</span><span class="mv">$719.93</span></div>
+  </div>
+
+  <div class="badges"><span class="badge b-vwap-below">▼ Below VWAP -0.01%</span><span class="badge b-green">9EMA✓</span><span class="badge b-green">20EMA✓</span><span class="badge b-gap-up">▲ GAP UP</span></div>
+
+  <div class="conf-header">
+    <span>Confluences</span>
+    <span class="conf-pips">●●●●●●</span>
+  </div>
+  <ul class="conf-list"><li>⚡ RVOL 2.5x — strong accumulation</li><li>↑ Gap Up +2.1%</li><li>〰 Hugging VWAP (-0.0%) — inflection zone</li><li>📐 Inside ORB range 1.7% ($714.77–$726.76)</li><li>📈 Price > 9EMA & 20EMA (1-min) — momentum aligned</li><li>↘ Healthy Pullback — dip-buy zone</li></ul>
+</div><div class="card" data-score="93" data-group="Index">
+  <div class="card-top">
+    <div class="tl">
+      <span class="ticker">AAPL</span>
+      <span class="grp-tag">Index</span>
+    </div>
+    <div class="tr">
+      <span class="grade" style="color:#10B981;border-color:#10B981">A</span>
+      <span class="score-num">93</span>
+    </div>
+  </div>
+
+  <div class="card-price-row">
+    <span class="price">$280.03</span>
+    <span class="gap-chip" style="color:#EF4444">Gap Down -1.89%</span>
+  </div>
+
+  <div class="trend-row">
+    <span class="trend-pill" style="background:#EF444422;color:#EF4444">Bear</span>
+    <span class="trend-pill" style="background:#64748B22;color:#64748B">Daily: Pullback</span>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="m"><span class="ml">Price</span><span class="mv">$280.04</span></div>
+    <div class="m"><span class="ml">VWAP</span><span class="mv">$280.78</span></div>
+    <div class="m"><span class="ml">PM High</span><span class="mv">$293.95</span></div>
+    <div class="m"><span class="ml">PM Low</span><span class="mv">$287.30</span></div>
+    <div class="m"><span class="ml">ORB Hi (15m)</span><span class="mv">$288.80</span></div>
+    <div class="m"><span class="ml">ORB Lo (15m)</span><span class="mv">$277.88</span></div>
+    <div class="m"><span class="ml">RVOL</span><span class="mv">2.7x</span></div>
+    <div class="m"><span class="ml">ATR%</span><span class="mv">3.10%</span></div>
+    <div class="m"><span class="ml">IR%</span><span class="mv">4.09%</span></div>
+    <div class="m"><span class="ml">PDH</span><span class="mv">$299.70</span></div>
+  </div>
+
+  <div class="badges"><span class="badge b-vwap-below">▼ Below VWAP -0.27%</span><span class="badge b-green">9EMA✓</span><span class="badge b-green">20EMA✓</span><span class="badge b-gap-dn">▼ GAP DN</span></div>
+
+  <div class="conf-header">
+    <span>Confluences</span>
+    <span class="conf-pips">●●●●●●</span>
+  </div>
+  <ul class="conf-list"><li>⚡ RVOL 2.7x — strong accumulation</li><li>↓ Small Gap Down -1.9%</li><li>〰 Hugging VWAP (-0.3%) — inflection zone</li><li>📐 Inside ORB range 3.9% ($277.88–$288.80)</li><li>🔻 Below PDL $292.94 (-4.4%)</li><li>📈 Price > 9EMA & 20EMA (1-min) — momentum aligned</li></ul>
+</div><div class="card" data-score="91" data-group="Index">
+  <div class="card-top">
+    <div class="tl">
+      <span class="ticker">MSFT</span>
+      <span class="grp-tag">Index</span>
+    </div>
+    <div class="tr">
+      <span class="grade" style="color:#10B981;border-color:#10B981">A</span>
+      <span class="score-num">91</span>
+    </div>
+  </div>
+
+  <div class="card-price-row">
+    <span class="price">$357.73</span>
+    <span class="gap-chip" style="color:#EF4444">Gap Down -0.75%</span>
+  </div>
+
+  <div class="trend-row">
+    <span class="trend-pill" style="background:#EF444422;color:#EF4444">Bear</span>
+    <span class="trend-pill" style="background:#EF444422;color:#EF4444">Daily: Downtrend</span>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="m"><span class="ml">Price</span><span class="mv">$357.73</span></div>
+    <div class="m"><span class="ml">VWAP</span><span class="mv">$359.46</span></div>
+    <div class="m"><span class="ml">PM High</span><span class="mv">$366.53</span></div>
+    <div class="m"><span class="ml">PM Low</span><span class="mv">$362.52</span></div>
+    <div class="m"><span class="ml">ORB Hi (15m)</span><span class="mv">$364.22</span></div>
+    <div class="m"><span class="ml">ORB Lo (15m)</span><span class="mv">$357.77</span></div>
+    <div class="m"><span class="ml">RVOL</span><span class="mv">1.8x</span></div>
+    <div class="m"><span class="ml">ATR%</span><span class="mv">3.19%</span></div>
+    <div class="m"><span class="ml">IR%</span><span class="mv">2.14%</span></div>
+    <div class="m"><span class="ml">PDH</span><span class="mv">$378.88</span></div>
+  </div>
+
+  <div class="badges"><span class="badge b-vwap-below">▼ Below VWAP -0.48%</span><span class="badge b-gap-dn">▼ GAP DN</span></div>
+
+  <div class="conf-header">
+    <span>Confluences</span>
+    <span class="conf-pips">●●●●●●</span>
+  </div>
+  <ul class="conf-list"><li>📊 RVOL 1.8x — above-avg volume</li><li>↓ Small Gap Down -0.8%</li><li>🎯 ORB Breakdown below $357.77</li><li>🔻 Below PDL $364.78 (-1.9%)</li><li>↓ Price < 9EMA & 20EMA (1-min) — short bias</li><li>📉 Daily Downtrend — short-bias intraday</li></ul>
+</div><div class="card" data-score="90" data-group="Index">
+  <div class="card-top">
+    <div class="tl">
+      <span class="ticker">AMZN</span>
+      <span class="grp-tag">Index</span>
+    </div>
+    <div class="tr">
+      <span class="grade" style="color:#10B981;border-color:#10B981">A</span>
+      <span class="score-num">90</span>
+    </div>
+  </div>
+
+  <div class="card-price-row">
+    <span class="price">$229.30</span>
+    <span class="gap-chip" style="color:#EF4444">Gap Down -0.94%</span>
+  </div>
+
+  <div class="trend-row">
+    <span class="trend-pill" style="background:#6EE7B722;color:#6EE7B7">Recovering</span>
+    <span class="trend-pill" style="background:#EF444422;color:#EF4444">Daily: Downtrend</span>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="m"><span class="ml">Price</span><span class="mv">$229.30</span></div>
+    <div class="m"><span class="ml">VWAP</span><span class="mv">$228.26</span></div>
+    <div class="m"><span class="ml">PM High</span><span class="mv">$234.60</span></div>
+    <div class="m"><span class="ml">PM Low</span><span class="mv">$231.45</span></div>
+    <div class="m"><span class="ml">ORB Hi (15m)</span><span class="mv">$232.26</span></div>
+    <div class="m"><span class="ml">ORB Lo (15m)</span><span class="mv">$226.06</span></div>
+    <div class="m"><span class="ml">RVOL</span><span class="mv">2.1x</span></div>
+    <div class="m"><span class="ml">ATR%</span><span class="mv">3.67%</span></div>
+    <div class="m"><span class="ml">IR%</span><span class="mv">2.74%</span></div>
+    <div class="m"><span class="ml">PDH</span><span class="mv">$242.42</span></div>
+  </div>
+
+  <div class="badges"><span class="badge b-vwap-above">▲ Above VWAP +0.46%</span><span class="badge b-green">9EMA✓</span><span class="badge b-green">20EMA✓</span><span class="badge b-gap-dn">▼ GAP DN</span></div>
+
+  <div class="conf-header">
+    <span>Confluences</span>
+    <span class="conf-pips">●●●●●●</span>
+  </div>
+  <ul class="conf-list"><li>⚡ RVOL 2.1x — strong accumulation</li><li>↓ Small Gap Down -0.9%</li><li>〰 Hugging VWAP (+0.5%) — inflection zone</li><li>📐 Inside ORB range 2.7% ($226.06–$232.26)</li><li>🔻 Below PDL $232.95 (-1.6%)</li><li>📈 Price > 9EMA & 20EMA (1-min) — momentum aligned</li></ul>
+</div><div class="card" data-score="85" data-group="Index">
+  <div class="card-top">
+    <div class="tl">
+      <span class="ticker">HOOD</span>
+      <span class="grp-tag">Index</span>
+    </div>
+    <div class="tr">
+      <span class="grade" style="color:#10B981;border-color:#10B981">A</span>
+      <span class="score-num">85</span>
+    </div>
+  </div>
+
+  <div class="card-price-row">
+    <span class="price">$95.89</span>
+    <span class="gap-chip" style="color:#10B981">Gap Up +1.79%</span>
+  </div>
+
+  <div class="trend-row">
+    <span class="trend-pill" style="background:#6EE7B722;color:#6EE7B7">Recovering</span>
+    <span class="trend-pill" style="background:#10B98122;color:#10B981">Daily: Uptrend</span>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="m"><span class="ml">Price</span><span class="mv">$95.89</span></div>
+    <div class="m"><span class="ml">VWAP</span><span class="mv">$95.62</span></div>
+    <div class="m"><span class="ml">PM High</span><span class="mv">$99.69</span></div>
+    <div class="m"><span class="ml">PM Low</span><span class="mv">$98.01</span></div>
+    <div class="m"><span class="ml">ORB Hi (15m)</span><span class="mv">$99.18</span></div>
+    <div class="m"><span class="ml">ORB Lo (15m)</span><span class="mv">$93.81</span></div>
+    <div class="m"><span class="ml">RVOL</span><span class="mv">1.4x</span></div>
+    <div class="m"><span class="ml">ATR%</span><span class="mv">7.80%</span></div>
+    <div class="m"><span class="ml">IR%</span><span class="mv">6.88%</span></div>
+    <div class="m"><span class="ml">PDH</span><span class="mv">$104.27</span></div>
+  </div>
+
+  <div class="badges"><span class="badge b-vwap-above">▲ Above VWAP +0.28%</span><span class="badge b-green">20EMA✓</span><span class="badge b-gap-up">▲ GAP UP</span></div>
+
+  <div class="conf-header">
+    <span>Confluences</span>
+    <span class="conf-pips">●●●●●●</span>
+  </div>
+  <ul class="conf-list"><li>↑ Small Gap Up +1.8%</li><li>〰 Hugging VWAP (+0.3%) — inflection zone</li><li>📐 Inside ORB range 5.7% ($93.81–$99.18)</li><li>📍 Testing Prev-Day Low $96.29 (-0.4%)</li><li>🏔 Daily Uptrend (price > 20MA > 50MA) — trend trade long</li><li>💨 ATR 7.8% — high daily volatility</li></ul>
+</div><div class="card" data-score="84" data-group="Index">
+  <div class="card-top">
+    <div class="tl">
+      <span class="ticker">IWM</span>
+      <span class="grp-tag">Index</span>
+    </div>
+    <div class="tr">
+      <span class="grade" style="color:#10B981;border-color:#10B981">A</span>
+      <span class="score-num">84</span>
+    </div>
+  </div>
+
+  <div class="card-price-row">
+    <span class="price">$300.82</span>
+    <span class="gap-chip" style="color:#10B981">Gap Up +0.68%</span>
+  </div>
+
+  <div class="trend-row">
+    <span class="trend-pill" style="background:#10B98122;color:#10B981">Bull</span>
+    <span class="trend-pill" style="background:#10B98122;color:#10B981">Daily: Uptrend</span>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="m"><span class="ml">Price</span><span class="mv">$300.82</span></div>
+    <div class="m"><span class="ml">VWAP</span><span class="mv">$299.49</span></div>
+    <div class="m"><span class="ml">PM High</span><span class="mv">$299.15</span></div>
+    <div class="m"><span class="ml">PM Low</span><span class="mv">$296.69</span></div>
+    <div class="m"><span class="ml">ORB Hi (15m)</span><span class="mv">$300.97</span></div>
+    <div class="m"><span class="ml">ORB Lo (15m)</span><span class="mv">$298.90</span></div>
+    <div class="m"><span class="ml">RVOL</span><span class="mv">1.3x</span></div>
+    <div class="m"><span class="ml">ATR%</span><span class="mv">2.24%</span></div>
+    <div class="m"><span class="ml">IR%</span><span class="mv">1.41%</span></div>
+    <div class="m"><span class="ml">PDH</span><span class="mv">$299.69</span></div>
+  </div>
+
+  <div class="badges"><span class="badge b-vwap-above">▲ Above VWAP +0.44%</span><span class="badge b-green">9EMA✓</span><span class="badge b-green">20EMA✓</span><span class="badge b-gap-up">▲ GAP UP</span></div>
+
+  <div class="conf-header">
+    <span>Confluences</span>
+    <span class="conf-pips">●●●●●●</span>
+  </div>
+  <ul class="conf-list"><li>↑ Small Gap Up +0.7%</li><li>〰 Hugging VWAP (+0.4%) — inflection zone</li><li>📐 Inside ORB range 0.7% ($298.90–$300.97)</li><li>📍 Testing Prev-Day High $299.69 (+0.4%)</li><li>📈 Price > 9EMA & 20EMA (1-min) — momentum aligned</li><li>🏔 Daily Uptrend (price > 20MA > 50MA) — trend trade long</li></ul>
+</div><div class="card" data-score="77" data-group="Index">
+  <div class="card-top">
+    <div class="tl">
+      <span class="ticker">META</span>
+      <span class="grp-tag">Index</span>
+    </div>
+    <div class="tr">
+      <span class="grade" style="color:#F59E0B;border-color:#F59E0B">B</span>
+      <span class="score-num">77</span>
+    </div>
+  </div>
+
+  <div class="card-price-row">
+    <span class="price">$554.50</span>
+    <span class="gap-chip" style="color:#64748B">Flat Open -0.32%</span>
+  </div>
+
+  <div class="trend-row">
+    <span class="trend-pill" style="background:#6EE7B722;color:#6EE7B7">Recovering</span>
+    <span class="trend-pill" style="background:#EF444422;color:#EF4444">Daily: Downtrend</span>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="m"><span class="ml">Price</span><span class="mv">$554.50</span></div>
+    <div class="m"><span class="ml">VWAP</span><span class="mv">$548.50</span></div>
+    <div class="m"><span class="ml">PM High</span><span class="mv">$559.26</span></div>
+    <div class="m"><span class="ml">PM Low</span><span class="mv">$554.08</span></div>
+    <div class="m"><span class="ml">ORB Hi (15m)</span><span class="mv">$555.55</span></div>
+    <div class="m"><span class="ml">ORB Lo (15m)</span><span class="mv">$540.21</span></div>
+    <div class="m"><span class="ml">RVOL</span><span class="mv">1.4x</span></div>
+    <div class="m"><span class="ml">ATR%</span><span class="mv">3.69%</span></div>
+    <div class="m"><span class="ml">IR%</span><span class="mv">2.86%</span></div>
+    <div class="m"><span class="ml">PDH</span><span class="mv">$569.04</span></div>
+  </div>
+
+  <div class="badges"><span class="badge b-vwap-above">▲ Above VWAP +1.09%</span><span class="badge b-green">9EMA✓</span><span class="badge b-green">20EMA✓</span></div>
+
+  <div class="conf-header">
+    <span>Confluences</span>
+    <span class="conf-pips">●●●●●●</span>
+  </div>
+  <ul class="conf-list"><li>✅ Above VWAP +1.1% (bullish bias)</li><li>📐 Inside ORB range 2.8% ($540.21–$555.55)</li><li>📍 Testing Prev-Day Low $555.55 (-0.2%)</li><li>📈 Price > 9EMA & 20EMA (1-min) — momentum aligned</li><li>📉 Daily Downtrend — short-bias intraday</li><li>💨 ATR 3.7% — tradeable volatility</li></ul>
+</div><div class="card" data-score="57" data-group="Index">
+  <div class="card-top">
+    <div class="tl">
+      <span class="ticker">TSLA</span>
+      <span class="grp-tag">Index</span>
+    </div>
+    <div class="tr">
+      <span class="grade" style="color:#FB923C;border-color:#FB923C">C</span>
+      <span class="score-num">57</span>
+    </div>
+  </div>
+
+  <div class="card-price-row">
+    <span class="price">$377.21</span>
+    <span class="gap-chip" style="color:#64748B">Flat Open +0.00%</span>
+  </div>
+
+  <div class="trend-row">
+    <span class="trend-pill" style="background:#6EE7B722;color:#6EE7B7">Recovering</span>
+    <span class="trend-pill" style="background:#EF444422;color:#EF4444">Daily: Downtrend</span>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="m"><span class="ml">Price</span><span class="mv">$377.21</span></div>
+    <div class="m"><span class="ml">VWAP</span><span class="mv">$375.29</span></div>
+    <div class="m"><span class="ml">PM High</span><span class="mv">$379.66</span></div>
+    <div class="m"><span class="ml">PM Low</span><span class="mv">$374.50</span></div>
+    <div class="m"><span class="ml">ORB Hi (15m)</span><span class="mv">$379.12</span></div>
+    <div class="m"><span class="ml">ORB Lo (15m)</span><span class="mv">$372.53</span></div>
+    <div class="m"><span class="ml">RVOL</span><span class="mv">0.9x</span></div>
+    <div class="m"><span class="ml">ATR%</span><span class="mv">5.02%</span></div>
+    <div class="m"><span class="ml">IR%</span><span class="mv">2.13%</span></div>
+    <div class="m"><span class="ml">PDH</span><span class="mv">$384.58</span></div>
+  </div>
+
+  <div class="badges"><span class="badge b-vwap-above">▲ Above VWAP +0.51%</span><span class="badge b-green">9EMA✓</span><span class="badge b-green">20EMA✓</span></div>
+
+  <div class="conf-header">
+    <span>Confluences</span>
+    <span class="conf-pips">●●●●●○</span>
+  </div>
+  <ul class="conf-list"><li>✅ Above VWAP +0.5% (bullish bias)</li><li>📐 Inside ORB range 1.8% ($372.53–$379.12)</li><li>📈 Price > 9EMA & 20EMA (1-min) — momentum aligned</li><li>📉 Daily Downtrend — short-bias intraday</li><li>💨 ATR 5.0% — high daily volatility</li></ul>
+</div><div class="card" data-score="49" data-group="Index">
+  <div class="card-top">
+    <div class="tl">
+      <span class="ticker">SPY</span>
+      <span class="grp-tag">Index</span>
+    </div>
+    <div class="tr">
+      <span class="grade" style="color:#FB923C;border-color:#FB923C">C</span>
+      <span class="score-num">49</span>
+    </div>
+  </div>
+
+  <div class="card-price-row">
+    <span class="price">$736.53</span>
+    <span class="gap-chip" style="color:#10B981">Gap Up +0.74%</span>
+  </div>
+
+  <div class="trend-row">
+    <span class="trend-pill" style="background:#10B98122;color:#10B981">Bull</span>
+    <span class="trend-pill" style="background:#64748B22;color:#64748B">Daily: Pullback</span>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="m"><span class="ml">Price</span><span class="mv">$736.61</span></div>
+    <div class="m"><span class="ml">VWAP</span><span class="mv">$734.57</span></div>
+    <div class="m"><span class="ml">PM High</span><span class="mv">$739.92</span></div>
+    <div class="m"><span class="ml">PM Low</span><span class="mv">$733.24</span></div>
+    <div class="m"><span class="ml">ORB Hi (15m)</span><span class="mv">$739.37</span></div>
+    <div class="m"><span class="ml">ORB Lo (15m)</span><span class="mv">$733.32</span></div>
+    <div class="m"><span class="ml">RVOL</span><span class="mv">1.4x</span></div>
+    <div class="m"><span class="ml">ATR%</span><span class="mv">1.65%</span></div>
+    <div class="m"><span class="ml">IR%</span><span class="mv">1.34%</span></div>
+    <div class="m"><span class="ml">PDH</span><span class="mv">$739.95</span></div>
+  </div>
+
+  <div class="badges"><span class="badge b-vwap-above">▲ Above VWAP +0.27%</span><span class="badge b-green">9EMA✓</span><span class="badge b-green">20EMA✓</span><span class="badge b-gap-up">▲ GAP UP</span></div>
+
+  <div class="conf-header">
+    <span>Confluences</span>
+    <span class="conf-pips">●●●●●○</span>
+  </div>
+  <ul class="conf-list"><li>↑ Small Gap Up +0.7%</li><li>〰 Hugging VWAP (+0.3%) — inflection zone</li><li>📐 Inside ORB range 0.8% ($733.32–$739.37)</li><li>📈 Price > 9EMA & 20EMA (1-min) — momentum aligned</li><li>↘ Healthy Pullback — dip-buy zone</li></ul>
+</div><div class="card" data-score="28" data-group="Index">
+  <div class="card-top">
+    <div class="tl">
+      <span class="ticker">SPX</span>
+      <span class="grp-tag">Index</span>
+    </div>
+    <div class="tr">
+      <span class="grade" style="color:#EF4444;border-color:#EF4444">D</span>
+      <span class="score-num">28</span>
+    </div>
+  </div>
+
+  <div class="card-price-row">
+    <span class="price">$7392.41</span>
+    <span class="gap-chip" style="color:#64748B">Flat Open +0.46%</span>
+  </div>
+
+  <div class="trend-row">
+    <span class="trend-pill" style="background:#10B98122;color:#10B981">Bull</span>
+    <span class="trend-pill" style="background:#64748B22;color:#64748B">Daily: Pullback</span>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="m"><span class="ml">Price</span><span class="mv">$7392.05</span></div>
+    <div class="m"><span class="ml">VWAP</span><span class="mv">$7372.67</span></div>
+    <div class="m"><span class="ml">PM High</span><span class="mv">$—</span></div>
+    <div class="m"><span class="ml">PM Low</span><span class="mv">$—</span></div>
+    <div class="m"><span class="ml">ORB Hi (15m)</span><span class="mv">$7419.08</span></div>
+    <div class="m"><span class="ml">ORB Lo (15m)</span><span class="mv">$7361.19</span></div>
+    <div class="m"><span class="ml">RVOL</span><span class="mv">0.7x</span></div>
+    <div class="m"><span class="ml">ATR%</span><span class="mv">1.67%</span></div>
+    <div class="m"><span class="ml">IR%</span><span class="mv">1.31%</span></div>
+    <div class="m"><span class="ml">PDH</span><span class="mv">$7428.06</span></div>
+  </div>
+
+  <div class="badges"><span class="badge b-vwap-above">▲ Above VWAP +0.27%</span><span class="badge b-green">9EMA✓</span><span class="badge b-green">20EMA✓</span></div>
+
+  <div class="conf-header">
+    <span>Confluences</span>
+    <span class="conf-pips">●●●●○○</span>
+  </div>
+  <ul class="conf-list"><li>〰 Hugging VWAP (+0.3%) — inflection zone</li><li>📐 Inside ORB range 0.8% ($7361.19–$7419.08)</li><li>📈 Price > 9EMA & 20EMA (1-min) — momentum aligned</li><li>↘ Healthy Pullback — dip-buy zone</li></ul>
+</div>
+</div>
+
+<script>
+const allCards = Array.from(document.querySelectorAll('.card'));
+let activeGroup = 'All';
+let activeSort  = 'score';
+
+function filterGroup(btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  activeGroup = btn.dataset.group;
+  render();
+}
+
+function sortCards(val) {
+  activeSort = val;
+  render();
+}
+
+function render() {
+  const grid = document.getElementById('card-grid');
+  let cards = allCards.filter(c => activeGroup === 'All' || c.dataset.group === activeGroup);
+
+  const key = {
+    score: c => -parseInt(c.dataset.score || 0),
+    rvol:  c => -(parseFloat(c.querySelector('.mv')?.textContent) || 0),
+    gap:   c => 0,
+    ir:    c => 0,
+    atr:   c => 0,
+  };
+
+  cards.sort((a,b) => (key[activeSort]?.(a) || 0) - (key[activeSort]?.(b) || 0));
+  allCards.forEach(c => c.style.display = 'none');
+  cards.forEach(c => { c.style.display = ''; grid.appendChild(c); });
+}
+
+// Activate All tab on load
+document.querySelector('.tab-btn[data-group="All"]').classList.add('active');
+</script>
+</body>
+</html>

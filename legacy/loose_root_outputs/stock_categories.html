@@ -1,0 +1,1256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stock Categorizer — 2026-06-25 07:51</title>
+<style>
+  :root {
+    --bg:#0B0F1A; --surface:#131929; --border:#1E2D45;
+    --text:#E2E8F0; --muted:#64748B;
+    --day:#F59E0B; --swing:#10B981; --lt:#6366F1; --avoid:#EF4444;
+    --font:'Inter','Segoe UI',system-ui,sans-serif;
+    --mono:'JetBrains Mono','Fira Code',monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--font);padding-bottom:60px}
+
+  .topbar{background:var(--surface);border-bottom:1px solid var(--border);
+    padding:14px 32px;display:flex;align-items:center;
+    justify-content:space-between;position:sticky;top:0;z-index:100}
+  .topbar h1{font-size:1.1rem;letter-spacing:.08em;font-weight:700;color:#fff}
+  .topbar .ts{font-size:.75rem;color:var(--muted);font-family:var(--mono)}
+  .nav-pills{display:flex;gap:8px;flex-wrap:wrap}
+  .nav-pill{padding:5px 14px;border-radius:20px;font-size:.78rem;font-weight:600;
+    border:1px solid;cursor:pointer;transition:all .15s;background:transparent}
+  .nav-pill:hover{opacity:.85}
+  .np-day{color:var(--day);border-color:var(--day)}
+  .np-swing{color:var(--swing);border-color:var(--swing)}
+  .np-lt{color:var(--lt);border-color:var(--lt)}
+  .np-avoid{color:var(--avoid);border-color:var(--avoid)}
+
+  .summary{display:flex;gap:16px;padding:20px 32px;flex-wrap:wrap;
+    border-bottom:1px solid var(--border)}
+  .stat-box{flex:1;min-width:130px;background:var(--surface);
+    border:1px solid var(--border);border-radius:10px;padding:14px 18px}
+  .stat-box .num{font-size:2rem;font-weight:800;font-family:var(--mono)}
+  .stat-box .lbl{font-size:.72rem;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.06em;margin-top:2px}
+
+  .category-section{padding:32px 32px 0}
+  .section-header{display:flex;align-items:flex-start;gap:16px;margin-bottom:20px;
+    padding-bottom:16px;border-bottom:1px solid var(--border)}
+  .cat-icon{font-size:2rem;line-height:1}
+  .section-header h2{font-size:1.3rem;font-weight:800}
+  .count{font-size:1rem;font-weight:500;opacity:.7}
+  .cat-desc{font-size:.8rem;color:var(--muted);margin-top:3px}
+
+  .card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;
+    overflow:hidden;transition:transform .15s,box-shadow .15s}
+  .card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.4)}
+  .card-header{padding:14px 16px 10px;border-bottom:1px solid var(--border)}
+  .ticker-row{display:flex;justify-content:space-between;align-items:baseline}
+  .ticker{font-size:1.2rem;font-weight:800;font-family:var(--mono);letter-spacing:.04em}
+  .sector{font-size:.7rem;color:var(--muted);text-transform:uppercase}
+  .price-row{display:flex;justify-content:space-between;align-items:center;margin-top:6px}
+  .price{font-size:1rem;font-weight:600;font-family:var(--mono)}
+  .score-chip{font-size:.72rem;font-weight:700;padding:2px 10px;
+    border-radius:20px;font-family:var(--mono)}
+  .badge-yes{display:inline-block;margin-top:6px;font-size:.68rem;font-weight:700;
+    color:#10B981;background:#10B98122;padding:2px 8px;border-radius:20px}
+  .badge-cs{display:inline-block;margin-top:6px;margin-left:4px;font-size:.68rem;
+    font-weight:700;color:#F59E0B;background:#F59E0B22;padding:2px 8px;border-radius:20px}
+
+  .card-metrics{display:grid;grid-template-columns:repeat(3,1fr)}
+  .metric{padding:8px 12px;border-right:1px solid var(--border);
+    border-bottom:1px solid var(--border)}
+  .metric:nth-child(3n){border-right:none}
+  .m-label{font-size:.65rem;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.04em;display:block}
+  .m-val{font-size:.88rem;font-weight:700;font-family:var(--mono);display:block;margin-top:2px}
+
+  .card-reasons{padding:10px 16px 12px}
+  .card-reasons ul{list-style:none}
+  .card-reasons li{font-size:.75rem;color:#94A3B8;padding:2px 0 2px 12px;position:relative}
+  .card-reasons li::before{content:'›';position:absolute;left:0;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1>⬡ STOCK CATEGORIZER</h1>
+  <nav class="nav-pills">
+    <button class="nav-pill np-day"
+      onclick="document.getElementById('Day_Trade').scrollIntoView({behavior:'smooth'})">⚡ Day Trade</button>
+    <button class="nav-pill np-swing"
+      onclick="document.getElementById('Swing_Trade').scrollIntoView({behavior:'smooth'})">📈 Swing Trade</button>
+    <button class="nav-pill np-lt"
+      onclick="document.getElementById('Long_Term').scrollIntoView({behavior:'smooth'})">🏦 Long Term</button>
+    <button class="nav-pill np-avoid"
+      onclick="document.getElementById('Avoid').scrollIntoView({behavior:'smooth'})">🚫 Avoid</button>
+  </nav>
+  <span class="ts">2026-06-25 07:51</span>
+</div>
+
+<div class="summary">
+  <div class="stat-box">
+    <div class="num" style="color:var(--day)">22</div>
+    <div class="lbl">Day Trade</div>
+  </div>
+  <div class="stat-box">
+    <div class="num" style="color:var(--swing)">3</div>
+    <div class="lbl">Swing Trade</div>
+  </div>
+  <div class="stat-box">
+    <div class="num" style="color:var(--lt)">10</div>
+    <div class="lbl">Long Term</div>
+  </div>
+  <div class="stat-box">
+    <div class="num" style="color:var(--avoid)">4</div>
+    <div class="lbl">Avoid</div>
+  </div>
+  <div class="stat-box">
+    <div class="num" style="color:#fff">39</div>
+    <div class="lbl">Total</div>
+  </div>
+</div>
+
+
+<section class="category-section" id="Day_Trade">
+  <div class="section-header">
+    <span class="cat-icon">⚡</span>
+    <div>
+      <h2 style="color:#F59E0B">Day Trade
+        <span class="count">(22)</span></h2>
+      <p class="cat-desc">Intraday momentum — elevated range & RVOL, near VWAP</p>
+    </div>
+  </div>
+  <div class="card-grid">
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">ASML</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$1820.11</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 80</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+12.5</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+61%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+36.9%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-7.1%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">+13.3%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.46</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Wide intraday range 5.5%</li><li>Moderate RVOL 0.46</li><li>Near VWAP (0.1%)</li><li>3M outperformer</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">TSM</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$440.84</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 80</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+10.8</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+72%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+35.2%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-7.5%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">+7.1%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.36</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Wide intraday range 5.4%</li><li>Moderate RVOL 0.36</li><li>Near VWAP (0.4%)</li><li>3M outperformer</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">GLW</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$228.52</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 75</span>
+    </div>
+    <span class="badge-yes">✓ Above All MAs</span>
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+44.5</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+102%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+68.9%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-0.9%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">+25.4%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.90</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Wide intraday range 12.0%</li><li>High RVOL 0.90</li><li>3M outperformer</li><li>Hugging 8EMA</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">AAOI</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$139.80</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 70</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+19.1</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+834%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+43.5%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-40.2%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-17.9%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.38</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Wide intraday range 14.9%</li><li>Moderate RVOL 0.38</li><li>Near VWAP (1.0%)</li><li>3M outperformer</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">COHR</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$396.08</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 70</span>
+    </div>
+    <span class="badge-yes">✓ Above All MAs</span>
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+38.4</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+286%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+62.8%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-10.0%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">+8.6%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.28</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Wide intraday range 11.3%</li><li>Near VWAP (0.1%)</li><li>3M outperformer</li><li>Hugging 8EMA</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">LITE</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$848.83</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 70</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">-1.2</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+222%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+23.2%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-21.8%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-6.0%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.32</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Wide intraday range 10.9%</li><li>Moderate RVOL 0.32</li><li>Near VWAP (0.4%)</li><li>Hugging 8EMA</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">HOOD</span>
+      <span class="sector">Financial Services</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$95.49</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 65</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+11.3</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+40%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+35.7%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-37.9%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">+12.3%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.28</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Wide intraday range 7.4%</li><li>Near VWAP (0.1%)</li><li>3M outperformer</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">NVDA</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$195.15</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 65</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">-10.5</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+95%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+14.0%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-17.5%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-7.2%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.33</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Wide intraday range 5.2%</li><li>Moderate RVOL 0.33</li><li>Near VWAP (0.3%)</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">SMCI</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$31.98</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 65</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+19.6</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+67%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+44.0%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-48.7%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-4.4%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.37</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Wide intraday range 7.3%</li><li>Moderate RVOL 0.37</li><li>Close to VWAP (1.4%)</li><li>3M outperformer</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">AVGO</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$381.40</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 60</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">-1.2</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+223%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+23.3%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-22.9%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-7.6%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.27</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Wide intraday range 5.9%</li><li>Near VWAP (0.2%)</li><li>Hugging 8EMA</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">CRWV</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$101.25</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 55</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+1.4</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+69%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+25.9%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-43.8%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-9.1%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.26</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Wide intraday range 8.3%</li><li>Near VWAP (0.8%)</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">AMZN</span>
+      <span class="sector">Consumer Cyclical</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$229.22</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 50</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">-14.0</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+34%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+10.4%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-17.7%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-10.6%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.41</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Intraday range 3.8%</li><li>Moderate RVOL 0.41</li><li>Near VWAP (0.4%)</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">CIEN</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$479.27</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 50</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">-0.9</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+220%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+23.5%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-24.8%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-7.8%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.29</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Wide intraday range 9.0%</li><li>Close to VWAP (1.2%)</li><li>Hugging 8EMA</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">OKLO</span>
+      <span class="sector">Utilities</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$52.76</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 50</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">-22.6</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+1%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+1.8%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-72.8%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-19.2%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.18</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Wide intraday range 8.5%</li><li>Near VWAP (1.0%)</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">SPCX</span>
+      <span class="sector">Industrials</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$153.30</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 50</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">—</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">—</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">—</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">—</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">—</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">—</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Wide intraday range 17.2%</li><li>Near VWAP (0.8%)</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">USAR</span>
+      <span class="sector">Basic Materials</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$20.79</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 50</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+5.5</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+101%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+29.9%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-52.7%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-13.8%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.28</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Wide intraday range 20.0%</li><li>Near VWAP (0.7%)</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">SOFI</span>
+      <span class="sector">Financial Services</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$17.44</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 45</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">-14.5</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+80%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+9.9%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-46.7%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">+2.7%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.31</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Intraday range 4.7%</li><li>Moderate RVOL 0.31</li><li>Close to VWAP (1.4%)</li><li>Hugging 8EMA</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">RGTI</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$19.02</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 40</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+7.6</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+77%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+32.0%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-67.3%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-5.9%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.26</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Wide intraday range 9.8%</li><li>Close to VWAP (2.0%)</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">META</span>
+      <span class="sector">Communication Services</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$554.94</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 30</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">-23.1</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+32%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+1.4%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-30.3%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-9.8%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.27</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Intraday range 3.5%</li><li>Close to VWAP (1.1%)</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">GOOGL</span>
+      <span class="sector">Communication Services</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$342.45</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 25</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">-2.5</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+11%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+21.9%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-16.2%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-7.3%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.41</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Moderate RVOL 0.41</li><li>Close to VWAP (1.1%)</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">TSLA</span>
+      <span class="sector">Consumer Cyclical</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$377.18</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 25</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">-23.1</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+129%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+1.4%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-24.4%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-6.9%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.18</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Near VWAP (0.5%)</li></ul></div>
+</div>
+<div class="card" data-cat="Day Trade">
+  <div class="card-header" style="border-left:4px solid #F59E0B">
+    <div class="ticker-row">
+      <span class="ticker">DRAM</span>
+      <span class="sector">ETF</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$75.63</span>
+      <span class="score-chip" style="background:#F59E0B22;color:#F59E0B">Score 0</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">—</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">—</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">—</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">—</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">—</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">1.58</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>ETF — elevated RVOL + wide range</li></ul></div>
+</div></div>
+</section>
+<section class="category-section" id="Swing_Trade">
+  <div class="section-header">
+    <span class="cat-icon">📈</span>
+    <div>
+      <h2 style="color:#10B981">Swing Trade
+        <span class="count">(3)</span></h2>
+      <p class="cat-desc">Multi-day setups — constructive structure, above key MAs, RS positive</p>
+    </div>
+  </div>
+  <div class="card-grid">
+<div class="card" data-cat="Swing Trade">
+  <div class="card-header" style="border-left:4px solid #10B981">
+    <div class="ticker-row">
+      <span class="ticker">HIMS</span>
+      <span class="sector">Healthcare</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$31.10</span>
+      <span class="score-chip" style="background:#10B98122;color:#10B981">Score 75</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+24.7</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+1089%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+49.1%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-55.8%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">+12.6%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.21</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Above 50MA (+12.6%)</li><li>Above 21EMA (+4.5%)</li><li>Volume drying up (VCP)</li><li>RS 25 — outperformer</li></ul></div>
+</div>
+<div class="card" data-cat="Swing Trade">
+  <div class="card-header" style="border-left:4px solid #10B981">
+    <div class="ticker-row">
+      <span class="ticker">NVTS</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$17.83</span>
+      <span class="score-chip" style="background:#10B98122;color:#10B981">Score 63</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+73.2</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+78%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+97.7%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-47.8%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-14.8%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.24</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Volume drying up (VCP)</li><li>ATR contracting</li><li>RS 73 — strong outperformer</li></ul></div>
+</div>
+<div class="card" data-cat="Swing Trade">
+  <div class="card-header" style="border-left:4px solid #10B981">
+    <div class="ticker-row">
+      <span class="ticker">LLY</span>
+      <span class="sector">Healthcare</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$1141.61</span>
+      <span class="score-chip" style="background:#10B98122;color:#10B981">Score 53</span>
+    </div>
+    <span class="badge-yes">✓ Above All MAs</span>
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+2.8</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+58%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+27.3%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-3.5%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">+11.3%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.19</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Above all MAs (8/21/50/200)</li><li>Near 52W high (-3.5%)</li></ul></div>
+</div></div>
+</section>
+<section class="category-section" id="Long_Term">
+  <div class="section-header">
+    <span class="cat-icon">🏦</span>
+    <div>
+      <h2 style="color:#6366F1">Long Term
+        <span class="count">(10)</span></h2>
+      <p class="cat-desc">Institutional-grade — elite RS, strong EPS/Revenue, sector leaders</p>
+    </div>
+  </div>
+  <div class="card-grid">
+<div class="card" data-cat="Long Term">
+  <div class="card-header" style="border-left:4px solid #6366F1">
+    <div class="ticker-row">
+      <span class="ticker">BE</span>
+      <span class="sector">Industrials</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$318.71</span>
+      <span class="score-chip" style="background:#6366F122;color:#6366F1">Score 110</span>
+    </div>
+    <span class="badge-yes">✓ Above All MAs</span>
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+114.3</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+14645%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+138.7%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-9.3%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">+16.7%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.43</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Elite RS 114</li><li>Exceptional EPS growth 14645%</li><li>Revenue +130%</li><li>Above 200MA</li></ul></div>
+</div>
+<div class="card" data-cat="Long Term">
+  <div class="card-header" style="border-left:4px solid #6366F1">
+    <div class="ticker-row">
+      <span class="ticker">CRDO</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$273.55</span>
+      <span class="score-chip" style="background:#6366F122;color:#6366F1">Score 110</span>
+    </div>
+    <span class="badge-yes">✓ Above All MAs</span>
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+159.2</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+256%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+183.6%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-11.4%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">+30.7%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.31</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Elite RS 159</li><li>Exceptional EPS growth 256%</li><li>Revenue +157%</li><li>Above 200MA</li></ul></div>
+</div>
+<div class="card" data-cat="Long Term">
+  <div class="card-header" style="border-left:4px solid #6366F1">
+    <div class="ticker-row">
+      <span class="ticker">SNDK</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$2179.26</span>
+      <span class="score-chip" style="background:#6366F122;color:#6366F1">Score 110</span>
+    </div>
+    <span class="badge-yes">✓ Above All MAs</span>
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+236.9</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+525%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+261.3%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-7.4%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">+45.8%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.45</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Elite RS 237</li><li>Exceptional EPS growth 525%</li><li>Revenue +251%</li><li>Above 200MA</li></ul></div>
+</div>
+<div class="card" data-cat="Long Term">
+  <div class="card-header" style="border-left:4px solid #6366F1">
+    <div class="ticker-row">
+      <span class="ticker">AMD</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$518.95</span>
+      <span class="score-chip" style="background:#6366F122;color:#6366F1">Score 102</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+130.2</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+338%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+154.7%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-7.8%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">+19.7%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.27</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Elite RS 130</li><li>Exceptional EPS growth 338%</li><li>Revenue +38%</li><li>Above 200MA</li></ul></div>
+</div>
+<div class="card" data-cat="Long Term">
+  <div class="card-header" style="border-left:4px solid #6366F1">
+    <div class="ticker-row">
+      <span class="ticker">MU</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$1166.05</span>
+      <span class="score-chip" style="background:#6366F122;color:#6366F1">Score 100</span>
+    </div>
+    <span class="badge-yes">✓ Above All MAs</span>
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+203.6</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+192%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+228.0%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-7.1%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">+48.0%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.72</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Elite RS 204</li><li>Good EPS growth 192%</li><li>Revenue +196%</li><li>Above 200MA</li></ul></div>
+</div>
+<div class="card" data-cat="Long Term">
+  <div class="card-header" style="border-left:4px solid #6366F1">
+    <div class="ticker-row">
+      <span class="ticker">INTC</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$130.08</span>
+      <span class="score-chip" style="background:#6366F122;color:#6366F1">Score 90</span>
+    </div>
+    <span class="badge-yes">✓ Above All MAs</span>
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+170.5</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+354%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+195.0%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-8.0%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">+21.5%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.37</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Elite RS 171</li><li>Exceptional EPS growth 354%</li><li>Above 200MA</li><li>Massive 3M outperformance (+195%)</li></ul></div>
+</div>
+<div class="card" data-cat="Long Term">
+  <div class="card-header" style="border-left:4px solid #6366F1">
+    <div class="ticker-row">
+      <span class="ticker">MRVL</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$273.13</span>
+      <span class="score-chip" style="background:#6366F122;color:#6366F1">Score 86</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+155.2</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+112%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+179.6%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-17.2%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">+29.8%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.34</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Elite RS 155</li><li>Good EPS growth 112%</li><li>Above 200MA</li><li>Massive 3M outperformance (+180%)</li></ul></div>
+</div>
+<div class="card" data-cat="Long Term">
+  <div class="card-header" style="border-left:4px solid #6366F1">
+    <div class="ticker-row">
+      <span class="ticker">INOD</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$75.14</span>
+      <span class="score-chip" style="background:#6366F122;color:#6366F1">Score 75</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+58.8</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+79%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+83.3%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-40.0%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-5.6%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.28</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Strong RS 59</li><li>Good EPS growth 79%</li><li>Revenue +54%</li><li>Above 200MA</li></ul></div>
+</div>
+<div class="card" data-cat="Long Term">
+  <div class="card-header" style="border-left:4px solid #6366F1">
+    <div class="ticker-row">
+      <span class="ticker">IONQ</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$51.57</span>
+      <span class="score-chip" style="background:#6366F122;color:#6366F1">Score 58</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+48.4</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">-370%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+72.8%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-39.1%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-5.2%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.24</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Positive RS 48</li><li>Revenue +755%</li><li>Above 200MA</li></ul></div>
+</div>
+<div class="card" data-cat="Long Term">
+  <div class="card-header" style="border-left:4px solid #6366F1">
+    <div class="ticker-row">
+      <span class="ticker">GLD</span>
+      <span class="sector">ETF</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$368.38</span>
+      <span class="score-chip" style="background:#6366F122;color:#6366F1">Score 0</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">-32.5</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">—</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">-8.1%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-27.7%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-10.8%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.61</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>ETF — hold for diversification</li></ul></div>
+</div></div>
+</section>
+<section class="category-section" id="Avoid">
+  <div class="section-header">
+    <span class="cat-icon">🚫</span>
+    <div>
+      <h2 style="color:#EF4444">Avoid
+        <span class="count">(4)</span></h2>
+      <p class="cat-desc">Broken charts — deep drawdown, weak RS, below all MAs</p>
+    </div>
+  </div>
+  <div class="card-grid">
+<div class="card" data-cat="Avoid">
+  <div class="card-header" style="border-left:4px solid #EF4444">
+    <div class="ticker-row">
+      <span class="ticker">FLY</span>
+      <span class="sector">Industrials</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$24.34</span>
+      <span class="score-chip" style="background:#EF444422;color:#EF4444">Score 80</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">-33.6</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+74%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">-9.2%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-67.0%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-36.4%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.32</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Deep drawdown from 52W high (-67%)</li><li>Very weak RS -34</li><li>Far below 50MA (-36%)</li></ul></div>
+</div>
+<div class="card" data-cat="Avoid">
+  <div class="card-header" style="border-left:4px solid #EF4444">
+    <div class="ticker-row">
+      <span class="ticker">PLTR</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$107.68</span>
+      <span class="score-chip" style="background:#EF444422;color:#EF4444">Score 75</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">-51.5</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+134%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">-27.0%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-48.1%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-21.4%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.52</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Significant drawdown (-48%)</li><li>Very weak RS -51</li><li>Far below 50MA (-21%)</li><li>Negative 3M return (-27.0%)</li></ul></div>
+</div>
+<div class="card" data-cat="Avoid">
+  <div class="card-header" style="border-left:4px solid #EF4444">
+    <div class="ticker-row">
+      <span class="ticker">IREN</span>
+      <span class="sector">Financial Services</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$48.45</span>
+      <span class="score-chip" style="background:#EF444422;color:#EF4444">Score 45</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">+4.9</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">-222%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">+29.4%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-37.0%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-11.7%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.26</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Significant drawdown (-37%)</li><li>Negative EPS -222%</li></ul></div>
+</div>
+<div class="card" data-cat="Avoid">
+  <div class="card-header" style="border-left:4px solid #EF4444">
+    <div class="ticker-row">
+      <span class="ticker">MSFT</span>
+      <span class="sector">Technology</span>
+    </div>
+    <div class="price-row">
+      <span class="price">$357.14</span>
+      <span class="score-chip" style="background:#EF444422;color:#EF4444">Score 40</span>
+    </div>
+    
+  </div>
+  <div class="card-metrics">
+    <div class="metric"><span class="m-label">RS</span>
+      <span class="m-val">-26.9</span></div>
+    <div class="metric"><span class="m-label">EPS%</span>
+      <span class="m-val">+16%</span></div>
+    <div class="metric"><span class="m-label">3M Ret</span>
+      <span class="m-val">-2.4%</span></div>
+    <div class="metric"><span class="m-label">vs 52H</span>
+      <span class="m-val">-35.7%</span></div>
+    <div class="metric"><span class="m-label">vs 50MA</span>
+      <span class="m-val">-13.3%</span></div>
+    <div class="metric"><span class="m-label">RVOL</span>
+      <span class="m-val">0.36</span></div>
+  </div>
+  <div class="card-reasons"><ul><li>Significant drawdown (-36%)</li><li>Weak RS -27</li></ul></div>
+</div></div>
+</section>
+</body>
+</html>

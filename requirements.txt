@@ -1,0 +1,6 @@
+pandas
+yfinance
+pytz
+schedule
+resend
+python-dotenv
