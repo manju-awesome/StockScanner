@@ -157,7 +157,8 @@ PUT_COLUMNS = ["Put_Candidate", "Put_Score", "Put_Reason"]
 # python put_candidate.py
 # ─────────────────────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+def main() -> None:
+    """Standalone entry point — run this module directly."""
     test_data = [
         # ticker, dist, days, ema8_pct, rsi, rvol, vol20d, bb,    adx,  rs
         ("LLY",  -0.6,  1,  7.91, 60.3, 2.28, 2.24, 1.425, 29.9,   1.1),
@@ -196,3 +197,7 @@ if __name__ == "__main__":
         compute_put_candidate(row)
         flag = "✓ YES" if row["Put_Candidate"] else "✗ NO "
         print(f"{ticker:<7} {flag}  {row['Put_Score']:>4}   {row['Put_Reason'][:72]}")
+
+
+if __name__ == "__main__":
+    main()

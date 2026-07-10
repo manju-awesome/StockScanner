@@ -314,7 +314,8 @@ CALL_COLUMNS = [
 # python call_candidate.py
 # ─────────────────────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+def main() -> None:
+    """Standalone entry point — run this module directly."""
     import sys
 
     test_data = [
@@ -382,3 +383,7 @@ if __name__ == "__main__":
     print("MODERATE (4-6): Enter with half size, wait for 50MA reclaim to add")
     print("WEAK (<4): Paper trade only")
     print("DISQUALIFIED: Skip — one or more hard blocks triggered")
+
+
+if __name__ == "__main__":
+    main()

@@ -115,9 +115,10 @@ Computes ~45 metrics per ticker: RS, RSI, BB_%B, ADX, RVOL, EMA/MA levels, ATR, 
 ratios, institutional ownership, and more.
 
 Known gotchas baked into this module (regression-test these):
-- `pandas_ta` renamed BB columns starting v0.4.71b0+; an unhandled rename silently wipes
-  ADX/RSI/BB_PctB downstream. Column names must be checked/mapped explicitly after the
-  `pandas_ta` call.
+- `pandas_ta` was removed (July 2026): it can't install on Python 3.14 (its numba pin
+  supports <3.14), and its BB column renames were a recurring silent-breakage source.
+  RSI/ADX/BB %B are now computed natively in this module
+  (`calculate_rsi/calculate_adx/calculate_bb_pctb`, Wilder's smoothing).
 - yfinance can return trailing `NaN` rows; these must be forward-filled (`ffill`) before
   computing indicators, or indicators come back NaN.
 - `dict.get()` doesn't gracefully handle `None` values in a few spots — needs explicit

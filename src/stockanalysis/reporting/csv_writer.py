@@ -1,18 +1,23 @@
 """
-write_metrics_csv.py
---------------------
-Drop-in helper — call save_metrics_to_csv(results) after your main scan loop.
+csv_writer.py
+=============
+Writes scan results to a timestamped, Excel-friendly CSV (UTF-8 BOM) —
+call save_metrics_to_csv(rows) after the scan loop.
 
-Usage in stock_categorizer.py:
-    from write_metrics_csv import save_metrics_to_csv
+Usage (see scanners/scan_universe.py):
+    from stockanalysis.reporting.csv_writer import save_metrics_to_csv
 
-    results = []
+    rows = []
     for ticker in TICKERS:
         row = get_metrics(ticker, qqq_return_3m)
-        row["Category"] = categorize(row)          # whatever your classify fn is
-        results.append(row)
+        row["Category"], row["Cat_Reason"], row["Rank_Score"] = categorize(row)
+        rows.append(row)
 
-    save_metrics_to_csv(results)           # → metrics_YYYYMMDD_HHMMSS.csv
+    save_metrics_to_csv(rows)              # → metrics_YYYYMMDD_HHMMSS.csv
+
+Run standalone (writes a CSV from built-in sample rows):
+    python csv_writer.py
+    python -m stockanalysis.reporting.csv_writer
 """
 
 import csv
@@ -22,7 +27,7 @@ from datetime import datetime
 # ── Column order (matches get_metrics output + Category appended) ─────────────
 COLUMN_ORDER = [
     # Identity
-    "Ticker","Category","Current Price"
+    "Ticker", "Category", "Current Price",
     "Put_Candidate", "Put_Score", "Put_Reason",
     "Call_Candidate", "Call_Score", "Call_Strength", "Call_Reason", "Call_Strike_Hint",
     "Trend_Strength",
@@ -140,7 +145,8 @@ def save_metrics_to_csv(
 
 
 # ── Quick standalone test (python write_metrics_csv.py) ──────────────────────
-if __name__ == "__main__":
+def main() -> None:
+    """Standalone entry point — run this module directly."""
     sample = [
         {
             "Ticker": "NVDA", "LongName": "NVIDIA Corporation", "Sector": "Technology",
@@ -187,3 +193,7 @@ if __name__ == "__main__":
         },
     ]
     save_metrics_to_csv(sample, output_dir=".", filename="test_metrics.csv")
+
+
+if __name__ == "__main__":
+    main()

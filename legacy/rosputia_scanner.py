@@ -35,8 +35,8 @@ try:
 except ImportError:
     UNIVERSE = ["AAPL", "MSFT", "NVDA", "AMD", "AVGO", "MU", "ARM"]
 '''
-UNIVERSE = ["META","GLW","MRVL", "HOOD","PLTR","MSFT", "NVDA", "AMD", "AVGO", "MU", "ARM"]
-UNIVERSE1 = [
+UNIVERSE1 = ["META","GLW","MRVL", "HOOD","PLTR","MSFT", "NVDA", "AMD", "AVGO", "MU", "ARM"]
+UNIVERSE= [
     # ── Chips / Semiconductors ────────────────────────────────────────────────
     "GOOGL", "AMD", "AVGO", "ASML",
     "TSM", "ARM", "INTC", "TXN",

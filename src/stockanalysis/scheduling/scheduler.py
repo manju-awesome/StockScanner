@@ -12,7 +12,7 @@ Orchestrates all stock scan runs with:
 Setup
 -----
 1. Install dependencies:
-       pip install schedule yfinance resend pyotp
+       pip install schedule yfinance resend python-dotenv
 
 2. Set environment variables (or create a .env file):
        RESEND_API_KEY=re_xxxxxxxxxxxx
@@ -73,12 +73,15 @@ from stockanalysis.scanners.scan_universe import main as run_scan, SP500_TICKERS
 from stockanalysis.reporting.dashboard import generate_dashboard, _score_to_grade  # dashboard + grading
 
 # ── Config ────────────────────────────────────────────────────────────────────
-#DAY_TRADE_TICKERS=['NBIS', 'CRWV', 'GLW', 'COIN', 'AMAT', 'META', 'MU', 'HIMS', 'PLTR', 'MRVL', 'MSFT', 'NVDA', 'TSLA', 'AMD', 'AVGO', 'HOOD']
-DAY_TRADE_TICKERS=['HOOD','NBIS','ARM','SPY','QQQ','PLTR', 'HIMS', 'INTC', 'AMAT', 'CRDO', 'ANET', 'NVDA', 'TSLA', 'AMD', 'AVGO', 'META']
-# Watchlist subsets — keeps intraday yfinance calls manageable
+#DAY_TRADE_TICKERS=[ 'META', 'MU', 'PLTR', 'MRVL', 'MSFT', 'NVDA', 'TSLA', 'AMD', 'AVGO', 'ARM']
+DAY_TRADE_TICKERS=['AMAT', 'WDC', 'GLW', 'MU', 'STX', 'COHR', 'NBIS', 'ARM', 'LITE', 'MRVL', 'PLTR', 'AVGO', 'HOOD', 'META', 'MSFT', 'NVDA', 'TSLA', 'AMD', 'CRWD']
+
 INTRADAY_TICKERS  = DAY_TRADE_TICKERS  #Daytrade only
-WATCHLIST_TICKERS = WATCHLIST_TICKERS #used for both swing and Longterm positions
-FULL_TICKERS      = SP500_TICKERS #To find the next trending stocks
+#WATCHLIST_TICKERS = WATCHLIST_TICKERS 
+WATCHLIST_TICKERS = WATCHLIST_TICKERS
+# #used for both swing and Longterm positions
+FULL_TICKERS      = SP500_TICKERS 
+#To find the next trending stocks
 
 
 ET = ZoneInfo("America/New_York")
@@ -236,6 +239,7 @@ def _start_scheduler() -> None:
 
     def job_swing_premarket():  run("daytrade",tickers=WATCHLIST_TICKERS)
     def job_calls_premarket():  run("daytrade",tickers=DAY_TRADE_TICKERS)
+
     def job_daytrade_open():    run("daytrade",tickers=DAY_TRADE_TICKERS)
     def job_daytrade_1000():    run("daytrade",tickers=DAY_TRADE_TICKERS)
     def job_daytrade_1030():    run("daytrade",tickers=DAY_TRADE_TICKERS)
@@ -394,32 +398,39 @@ def _append_history(rows: list[dict], mode: str, dashboard_path: str) -> None:
 
 # ── Alert conditions ──────────────────────────────────────────────────────────
 
+def _num(r: dict, key: str, default: float) -> float:
+    """r.get() that also falls back when the stored value is None (metric failed)."""
+    v = r.get(key, default)
+    return default if v is None else v
+
+
 def _alert_conditions(mode: str) -> callable:
     """Return a filter function for rows that deserve an email alert."""
     conditions = {
         "daytrade": lambda r: (
-            r.get("RVOL", 0) >= 1.5
+            # time-adjusted RVOL when available; daily RVOL underreads all morning
+            (_num(r, "RVOL_Intraday", 0) or _num(r, "RVOL", 0)) >= 1.5
             and r.get("Above_VWAP")
             and r.get("Category") in ("Momentum", "Momentum-Pullback")
-            and r.get("ADX_14", 0) >= 25
+            and _num(r, "ADX_14", 0) >= 25
             and r.get("Entry_Gate_Pass")
         ),
         "swing": lambda r: (
-            r.get("BB_PctB", 1) <= 0.20
+            _num(r, "BB_PctB", 1) <= 0.20
             and r.get("ATR Shrinking")
-            and r.get("Pullback_Vol_Ratio", 2) <= 0.75
-            and r.get("RS", -999) >= 15
+            and _num(r, "Pullback_Vol_Ratio", 2) <= 0.75
+            and _num(r, "RS", -999) >= 15
             and r.get("Entry_Gate_Pass")
         ),
         "puts": lambda r: (
             r.get("Put_Candidate")
-            and r.get("Put_Score", 0) >= 8          # A grade floor
-            and r.get("BB_PctB", 0) >= 1.1          # extended above upper BB
+            and _num(r, "Put_Score", 0) >= 8        # A grade floor
+            and _num(r, "BB_PctB", 0) >= 1.1        # extended above upper BB
         ),
         "calls": lambda r: (
             r.get("Call_Candidate")
-            and r.get("Call_Score", 0) >= 14        # A grade floor
-            and r.get("RS", -999) >= 20
+            and _num(r, "Call_Score", 0) >= 14      # A grade floor
+            and _num(r, "RS", -999) >= 20
             and r.get("VolumeDryingUp")
         ),
     }
@@ -562,7 +573,6 @@ def run(mode: str, tickers: list[str] | None = None, force: bool = False) -> Non
     # ── Ticker universe ─────────────────────────────────────────
     if tickers is None:
         if mode == "daytrade":
-
             #_initialize_day_session()
             tickers = _dynamic_day_trade if _dynamic_day_trade else DAY_TRADE_TICKERS
         elif mode in ("swing", "puts", "calls"):
@@ -774,7 +784,8 @@ def _start_scheduler_test() -> None:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+def main() -> None:
+    """Standalone entry point — run this module directly."""
     parser = argparse.ArgumentParser(description="Stock scan scheduler")
 
     parser.add_argument(
@@ -801,3 +812,7 @@ if __name__ == "__main__":
         _start_scheduler_test()
     else:
         _start_scheduler()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,11 +1,16 @@
 """
-stock_categorizer.py
-====================
-Scans a watchlist / S&P 500 universe, fetches all metrics via yfinance,
-categorises every ticker using a structured decision tree, and writes two CSV files:
+scan_universe.py
+================
+Main scan entry point. Scans a watchlist / S&P 500 universe, fetches all
+metrics via yfinance, categorises every ticker using a structured decision
+tree, grades entries (enrich_rows), and produces:
 
-  stock_scan_YYYYMMDD_HHMM.csv        – full metrics + category + reasons
-  stock_scan_YYYYMMDD_HHMM_summary.csv – one row per category, sorted by rank score
+  data/output/stock_scan_YYYYMMDD_HHMM.csv  – full metrics + category + levels
+                                              (Scan_Time column = when the scan
+                                              finished; single CSV per run)
+  HTML dashboard (reporting.dashboard)      – top-5 cards + market pulse
+  Console tables per category, put/call reports, and a Day Trade Candidates
+  section with paste-ready lines for docs/day_trading_prompts.md
 
 
    Day Trade tickers
@@ -50,9 +55,11 @@ Categories (in priority order)
 
 Usage
 -----
-  pip install yfinance pandas pandas_ta pytz
-  python stock_categorizer.py
-  python stock_categorizer.py --tickers NVDA AAPL MSFT TSLA
+  pip install yfinance pandas pytz
+  python scan_universe.py                            # default universe
+  python scan_universe.py --tickers NVDA AAPL MSFT
+  python scan_universe.py --universe sp500
+  python -m stockanalysis.scanners.scan_universe
 """
 
 import argparse
@@ -62,13 +69,16 @@ import time
 import warnings
 from datetime import datetime
 from pathlib import Path
-from stockanalysis.reporting.csv_writer import save_metrics_to_csv
+
+if __package__ in (None, ""):   # direct run: make `stockanalysis.*` importable
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from stockanalysis.core.metrics import get_metrics
 from stockanalysis.core.grade_signals import classify_grade_and_signals, enrich_rows
-from stockanalysis.reporting.signal_tracker import log_signals_from_rows
+from stockanalysis.reporting.signal_tracker import log_signals_from_rows, log_day_trades_from_rows
 from stockanalysis.core.put_candidate import compute_put_candidate
 from stockanalysis.core.call_candidate import compute_call_candidate
-from stockanalysis.reporting.dashboard import generate_dashboard
+from stockanalysis.reporting.dashboard import generate_dashboard, _day_trade_score, day_trade_levels
 
 import pandas as pd
 import yfinance as yf
@@ -336,7 +346,9 @@ def calculate_atr(df: pd.DataFrame, period: int = 20) -> pd.Series:
 def fetch_qqq_return() -> float:
     """Fetch QQQ 3-month return as benchmark for RS calculation."""
     try:
-        qqq = yf.Ticker("QQQ").history(period="1y", interval="1d", auto_adjust=False)
+        # auto_adjust=True to match the per-ticker daily fetch in metrics.py —
+        # RS subtracts this return, so both sides must be dividend-adjusted
+        qqq = yf.Ticker("QQQ").history(period="1y", interval="1d", auto_adjust=True)
         if len(qqq) >= 63:
             close = qqq["Close"].ffill()   # guard against trailing NaN row
             c_now = float(close.iloc[-1])
@@ -660,25 +672,29 @@ def main(tickers: list) -> list:
     # ── Grade + entry/stop/target enrichment (earnings blackout & R:R gates) ──
     enrich_rows(rows)
 
-    # ── Feedback loop: log A/B signals for outcome tracking ──────────────────
+    # ── Feedback loop: log A/B signals + day-trade candidates ────────────────
     n_logged = log_signals_from_rows(rows)
     if n_logged:
         log.info("Signal tracker: %d new A/B signal(s) logged", n_logged)
-
-    save_metrics_to_csv(rows, output_dir=out_dir)
+    n_day = log_day_trades_from_rows(rows)
+    if n_day:
+        log.info("Day-trade tracker: %d candidate(s) logged", n_day)
 
     # ── DataFrame + column ordering ──────────────────────────────────────────
+    # (was also mirrored to metrics_*.csv via csv_writer — same rows, so one
+    # file per scan is enough; stock_scan_*.csv is the sorted/curated one)
     df = pd.DataFrame(rows)
+    df.insert(0, "Scan_Time", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
     priority = [
-        "Ticker", "LongName", "Sector",
+        "Scan_Time", "Ticker", "LongName", "Sector",
         "Category", "Cat_Reason", "Rank_Score",
         "Grade", "RR_T2", "Days_To_Earnings", "SizeFlag",
         "Entry", "Stop", "Target", "Notes",
         "Entry_Gate_Pass", "Entry_Gate_Reason",
-        "Current Price", "Dist_52W_High%", "Pct_From_52W_Low%",
+        "Current Price", "Gap%", "Gap_Now%", "Dist_52W_High%", "Pct_From_52W_Low%",
         "52W_High_Date", "Days_Since_52W_High",
-        "RVOL", "Vol_vs_20D", "Pullback_Vol_Ratio",
+        "RVOL", "RVOL_Intraday", "RVOL_EOD", "Vol_vs_20D", "Pullback_Vol_Ratio",
         "RSI_14", "ADX_14", "Trend_Strength", "BB_PctB",
         "200MA", "50MA", "8EMA", "21EMA",
         "Price_vs_200MA%", "Price_vs_50MA%", "Pct_vs_8EMA",
@@ -689,8 +705,9 @@ def main(tickers: list) -> list:
         "FCF_Positive", "Short_Interest%", "EarningsBeat", "EarningsDate",
         "MarketCap",
         "52W High", "52W Low",
-        "Prev-Day High", "Prev-Day Low",
+        "Prev-Day High", "Prev-Day Low", "Prev-Day Close",
         "Pre-Market High", "Pre-Market Low",
+        "ORB_High", "ORB_Low", "ORB_Status",
     ]
     existing = [c for c in priority if c in df.columns]
     rest     = [c for c in df.columns if c not in priority and not c.startswith("_")]
@@ -750,13 +767,74 @@ def main(tickers: list) -> list:
                      "RVOL", "RSI_14", "ADX_14", "RS", "Rank_Score", "Cat_Reason"]
         show_cols = [c for c in show_cols if c in sub.columns]
         print(sub[show_cols].to_string(index=False, max_colwidth=60))
+
+    print_day_trade_section(rows)
     return rows
+
+
+def print_day_trade_section(rows: list[dict], top_n: int = 10) -> None:
+    """
+    Console table of day-trade candidates, ranked by the same _day_trade_score
+    the dashboard's "Day Trade Top 5" uses, plus one paste-ready line per ticker
+    with the fields docs/day_trading_prompts.md asks for (price, VWAP, RVOL, ADX,
+    daily ATR, prev-day & pre-market levels, entry/stop/target plan).
+    """
+    scored = sorted(
+        ((s, r) for r in rows if (s := _day_trade_score(r)) > 20),
+        key=lambda x: x[0], reverse=True,
+    )[:top_n]
+
+    if not scored:
+        print("\n── Day Trade Candidates (0) — nothing passed the day-trade "
+              "score gate (entry gate + score > 20)")
+        return
+
+    print(f"\n── Day Trade Candidates ({len(scored)}) {'─' * 40}")
+    day_cols = ["Ticker", "Current Price", "Gap%", "Gap_Now%", "VWAP",
+                "Above_VWAP", "RVOL_Intraday", "RVOL", "ORB_High", "ORB_Low",
+                "ORB_Status", "ADX_14", "ATR20", "ATR_Pct",
+                "Prev-Day High", "Prev-Day Low", "Pre-Market High",
+                "Pre-Market Low", "Grade"]
+    # Day-trade plan comes from day_trade_levels() — the row's Entry/Stop/Target
+    # are the SWING plan (text sentences), not intraday breakout numbers
+    day_df = pd.DataFrame(
+        [{**{c: r.get(c) for c in day_cols},
+          **{f"DT_{k.title()}": v for k, v in (day_trade_levels(r) or {}).items()
+             if k in ("entry", "stop", "t1", "t2")},
+          "Day_Score": round(s)}
+         for s, r in scored]
+    )
+    print(day_df.to_string(index=False))
+
+    def _f(v, nd=2):
+        return f"{v:.{nd}f}" if isinstance(v, (int, float)) and not isinstance(v, bool) else "?"
+
+    print("\n   Paste into the entry-evaluation prompt (docs/day_trading_prompts.md #2):")
+    for s, r in scored:
+        vwap_side = "above" if r.get("Above_VWAP") else "below"
+        rvol_i = r.get("RVOL_Intraday")
+        rvol_txt = (f"RVOL {_f(rvol_i)} (time-adj)" if rvol_i is not None
+                    else f"RVOL {_f(r.get('RVOL'))} (daily)")
+        orb_txt = (f"ORB {_f(r.get('ORB_Low'))}–{_f(r.get('ORB_High'))} "
+                   f"({r.get('ORB_Status') or '?'})"
+                   if r.get("ORB_High") else "ORB —")
+        lv = day_trade_levels(r) or {}
+        print(f"   {r.get('Ticker', '?')}: price {_f(r.get('Current Price'))}, "
+              f"gap {_f(r.get('Gap%'))}% (now {_f(r.get('Gap_Now%'))}%), "
+              f"VWAP {_f(r.get('VWAP'))} ({vwap_side}), {rvol_txt}, {orb_txt}, "
+              f"ADX {_f(r.get('ADX_14'), 1)}, ATR(daily) {_f(r.get('ATR20'))}, "
+              f"prev-day H/L {_f(r.get('Prev-Day High'))}/{_f(r.get('Prev-Day Low'))}, "
+              f"pre-mkt H/L {_f(r.get('Pre-Market High'))}/{_f(r.get('Pre-Market Low'))} | "
+              f"plan ({lv.get('setup', '—')}): entry {_f(lv.get('entry'))} "
+              f"stop {_f(lv.get('stop'))} t1 {_f(lv.get('t1'))} t2 {_f(lv.get('t2'))} "
+              f"[{r.get('Grade') or '—'}, score {round(s)}]")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ENTRY POINT
 # ─────────────────────────────────────────────────────────────────────────────
-if __name__ == "__main__":
+def cli() -> None:
+    """Command-line entry point: pick a universe / tickers and run the scan."""
     # ── Ticker universes ──────────────────────────────────────────────────────────
 
 
@@ -774,13 +852,13 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
     Examples:
-      python SA_ver3.py                              # default: full S&P 500
-      python SA_ver3.py --universe watchlist         # your curated watchlist
-      python SA_ver3.py --universe daytrade          # day-trade focused tickers
-      python SA_ver3.py --universe longterm          # long-term hold candidates
-      python SA_ver3.py --universe dividend          # high-dividend income names
-      python SA_ver3.py --tickers NVDA AMD MU        # ad-hoc custom list
-      python SA_ver3.py --universe sp500 --tickers NVDA AAPL   # sp500 + extras
+      python scan_universe.py                              # default: full S&P 500
+      python scan_universe.py --universe watchlist         # your curated watchlist
+      python scan_universe.py --universe daytrade          # day-trade focused tickers
+      python scan_universe.py --universe longterm          # long-term hold candidates
+      python scan_universe.py --universe dividend          # high-dividend income names
+      python scan_universe.py --tickers NVDA AMD MU        # ad-hoc custom list
+      python scan_universe.py --universe sp500 --tickers NVDA AAPL   # sp500 + extras
         """,
     )
     parser.add_argument(
@@ -875,3 +953,7 @@ if __name__ == "__main__":
             for n in sig["notes"]:
                 print(f"  NOTE   : {n}")
     '''
+
+
+if __name__ == "__main__":
+    cli()

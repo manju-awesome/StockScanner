@@ -15,6 +15,9 @@ __pycache__/
 data/output/*
 !data/output/.gitkeep
 
+# Backtest price-bar cache (re-downloadable)
+data/cache/
+
 # OS
 .DS_Store
 Thumbs.db
