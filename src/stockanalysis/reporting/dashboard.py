@@ -6,10 +6,13 @@ Generates a self-contained HTML dashboard from enriched scan rows:
   - Market-pulse header: VIX, SPY/QQQ strength (own trend + allocation-weighted
     mega-cap breadth), top-10 S&P mega caps with weights, news catalysts, and
     upcoming high-impact economic events
-  - Top 5 cards per section (Day Trade, Swing Trade, Calls, Puts) with the
-    R:R-gated entry/stop/target plan from grade_signals, gate warnings (⛔/⚠),
-    and a fixed-risk R:R + position-size line
-    (ACCOUNT_SIZE / RISK_PER_TRADE_PCT / MAX_POSITION_PCT env vars)
+  - Top 5 cards per section (Day Trade, Swing Trade, Long-Term, Calls, Puts)
+    with the R:R-gated entry/stop/target plan from grade_signals, gate
+    warnings (⛔/⚠), and a fixed-risk R:R + position-size line
+    (ACCOUNT_SIZE / RISK_PER_TRADE_PCT / MAX_POSITION_PCT env vars).
+    Long-Term cards are Investment_Pass names (all six primary filters green)
+    showing the pass reason, LT_Entry_Timing, and tranche add levels instead
+    of a tight-stop trade plan.
 
 Usage
 -----
@@ -48,6 +51,9 @@ def _v(row: dict, key: str, default=None):
 _GRADE_THRESHOLDS = {
     "Day Trade":   [(80, "A+"), (65, "A"), (50, "B+"), (35, "B"), (20, "C")],
     "Swing Trade": [(85, "A+"), (70, "A"), (55, "B+"), (40, "B"), (20, "C")],
+    # Long-Term shows Investment_Pass rows only, so every card already cleared
+    # all six primary filters — grades split by how much bonus scoring remains
+    "Long-Term":   [(95, "A+"), (85, "A"), (75, "B+"), (65, "B"), (40, "C")],
     "Calls":       [(18, "A+"), (14, "A"), (10, "B+"), (6,  "B"), (1,  "C")],
     "Puts":        [(8,  "A+"), (6,  "A"), (4,  "B+"), (2,  "B"), (1,  "C")],
 }
@@ -60,9 +66,35 @@ RISK_PER_TRADE_PCT = float(os.environ.get("RISK_PER_TRADE_PCT", "1.0"))
 MAX_POSITION_PCT   = float(os.environ.get("MAX_POSITION_PCT", "25"))
 _SIZE_MULT = {"FULL": 1.0, "HALF": 0.5, "QUARTER": 0.25, "NONE": 0.0}
 
+# Active market regime for this dashboard build — set once by
+# generate_dashboard() before any card renders, read by the sizing line so
+# every position size scales with the day's regime. Default = full size.
+_ACTIVE_REGIME: dict = {"regime": "Neutral", "source": "none",
+                        "multipliers": {"day": 1.0, "swing": 1.0, "longterm": 1.0}}
 
-def _risk_size_html(entry_px, stop_px, t1_px, t2_px, size_flag) -> str:
-    """R:R + fixed-risk position-size line for a card. '' when levels invalid."""
+# Card section → regime multiplier horizon. Options ride the swing horizon —
+# they're multi-day directional bets with premium as the risk budget.
+_SECTION_HORIZON = {"Day Trade": "day", "Swing Trade": "swing",
+                    "Long-Term": "longterm", "Calls": "swing", "Puts": "swing"}
+
+
+def _regime_mult(section: str) -> float:
+    return _ACTIVE_REGIME["multipliers"].get(
+        _SECTION_HORIZON.get(section, "swing"), 1.0)
+
+
+def _regime_note(section: str) -> str:
+    m = _regime_mult(section)
+    if m >= 1.0 or _ACTIVE_REGIME.get("source") == "none":
+        return ""
+    return f' · <b>×{m:g} {_ACTIVE_REGIME["regime"].upper()} regime</b>'
+
+
+def _risk_size_html(entry_px, stop_px, t1_px, t2_px, size_flag,
+                    section: str = "Swing Trade") -> str:
+    """R:R + fixed-risk position-size line for a card, scaled by the active
+    market regime's multiplier for the section's horizon. '' when levels
+    invalid."""
     try:
         entry_px, stop_px = float(entry_px), float(stop_px)
     except (TypeError, ValueError):
@@ -80,7 +112,7 @@ def _risk_size_html(entry_px, stop_px, t1_px, t2_px, size_flag) -> str:
 
     rr1, rr2 = _rr(t1_px), _rr(t2_px)
     flag   = (size_flag or "FULL").upper()
-    mult   = _SIZE_MULT.get(flag, 1.0)
+    mult   = _SIZE_MULT.get(flag, 1.0) * _regime_mult(section)
     budget = ACCOUNT_SIZE * RISK_PER_TRADE_PCT / 100 * mult
     shares = int(budget // risk_sh)
     capped = ""
@@ -100,7 +132,8 @@ def _risk_size_html(entry_px, stop_px, t1_px, t2_px, size_flag) -> str:
         f'<span style="min-width:42px;text-align:center;background:{bg};color:{fg};'
         f'padding:1px 5px;border-radius:3px;font-size:10px;font-weight:500;flex-shrink:0">R:R·SIZE</span>'
         f'<span style="color:#52514e;line-height:1.4">R:R {rr_txt} · risk ${risk_sh:,.2f}/sh · '
-        f'{size_txt} ({flag} = {RISK_PER_TRADE_PCT * mult:g}% of ${ACCOUNT_SIZE:,.0f}{capped})</span></div>'
+        f'{size_txt} ({flag} = {RISK_PER_TRADE_PCT * mult:g}% of ${ACCOUNT_SIZE:,.0f}{capped})'
+        f'{_regime_note(section)}</span></div>'
     )
 
 
@@ -316,6 +349,18 @@ def _put_score(row: dict) -> float:
     return float(ps) if cnd else -1.0
 
 
+def _longterm_score(row: dict) -> float:
+    """
+    Long-term section score = Investment_Score, shown only for names passing
+    ALL six primary filters (RS_Rank>80, EPS>25%, revenue>20%, above 200MA,
+    FCF positive, earnings beat). A high score without the pass flag means a
+    filter failed — those belong on the CSV for review, not on the buy cards.
+    """
+    if not _v(row, "Investment_Pass", False):
+        return -999
+    return float(_v(row, "Investment_Score", 0) or 0)
+
+
 def _top5(rows: list[dict], score_fn, min_score: float = 0) -> list[dict]:
     """Return top 5 rows by score_fn, with score attached."""
     scored = []
@@ -504,7 +549,8 @@ def _stock_card(row: dict, section: str) -> str:
     # R:R + fixed-risk position size
     size_flag = _v(row, "SizeFlag")
     if section in ("Day Trade", "Swing Trade"):
-        rr_size_html = _risk_size_html(lv_e, lv_s, lv_t1, lv_t2, size_flag)
+        rr_size_html = _risk_size_html(lv_e, lv_s, lv_t1, lv_t2, size_flag,
+                                       section=section)
     else:  # options — max loss is the premium, so size = the risk budget itself
         # The swing SizeFlag reflects the LONG-side verdict; an "Avoid" stock is
         # a perfectly valid put candidate, so NONE must not zero the budget.
@@ -512,14 +558,15 @@ def _stock_card(row: dict, section: str) -> str:
         flag = (size_flag or "").upper()
         if flag not in ("FULL", "HALF", "QUARTER"):
             flag = "QUARTER" if (atr_pct or 0) > 10 else "HALF"
-        budget = ACCOUNT_SIZE * RISK_PER_TRADE_PCT / 100 * _SIZE_MULT.get(flag, 0.5)
+        opt_mult = _SIZE_MULT.get(flag, 0.5) * _regime_mult(section)
+        budget = ACCOUNT_SIZE * RISK_PER_TRADE_PCT / 100 * opt_mult
         rr_size_html = (
             f'<div style="display:flex;gap:6px;align-items:flex-start;margin-top:4px;font-size:11px">'
             f'<span style="min-width:42px;text-align:center;background:#E1F5EE;color:#085041;'
             f'padding:1px 5px;border-radius:3px;font-size:10px;font-weight:500;flex-shrink:0">R:R·SIZE</span>'
             f'<span style="color:#52514e;line-height:1.4">Max premium ${budget:,.0f} total '
-            f'({flag} = {RISK_PER_TRADE_PCT * _SIZE_MULT.get(flag, 0.5):g}% of ${ACCOUNT_SIZE:,.0f}) — '
-            f'max loss = premium paid</span></div>'
+            f'({flag} = {RISK_PER_TRADE_PCT * opt_mult:g}% of ${ACCOUNT_SIZE:,.0f}) — '
+            f'max loss = premium paid{_regime_note(section)}</span></div>'
         )
 
     return f"""
@@ -527,7 +574,7 @@ def _stock_card(row: dict, section: str) -> str:
                 padding:14px 16px;break-inside:avoid;margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
         <div>
-          <span style="font-size:17px;font-weight:500;color:#0b0b0b">{ticker}</span>
+          <span style="font-size:17px;font-weight:500;color:#0b0b0b">{ticker}</span>{_research_link(ticker)}
           <span style="font-size:13px;color:#898781;margin-left:6px">${price:,.2f}</span>
         </div>
         <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end">
@@ -539,6 +586,8 @@ def _stock_card(row: dict, section: str) -> str:
                        padding:2px 7px;border-radius:4px">{grade}</span>
         </div>
       </div>
+
+      {_conviction_strip_html(row)}
 
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:10px">
         <div style="text-align:center;background:#f9f9f7;border-radius:6px;padding:5px">
@@ -591,17 +640,177 @@ def _stock_card(row: dict, section: str) -> str:
     </div>"""
 
 
+def _longterm_card(row: dict) -> str:
+    """
+    Card for the Long-Term Investment section — designed so an investor knows
+    exactly what to do: a star rating (score/20), a vertical ✓/✗ reasons
+    checklist of the investment filters, and a concrete tranche entry plan
+    (Buy now 25% / 8EMA 25% / 21EMA 50%) with the actual price levels.
+    Review triggers replace a tight stop — a 6-24 mo position exits on
+    thesis/stage breaks, not day-range noise.
+    """
+    ticker   = _v(row, "Ticker", "?")
+    name     = _v(row, "LongName", "")
+    sector   = _v(row, "Sector", "")
+    price    = _v(row, "Current Price", 0) or 0
+    score    = _v(row, "_dashboard_score", 0)
+    rs_rank  = _v(row, "RS_Rank")
+    eps_g    = _v(row, "EPS_Growth%")
+    rev_g    = _v(row, "Revenue")
+    inst_chg = _v(row, "Inst_Own_Chg")
+    fcf      = _v(row, "FCF_Positive", False)
+    earn_b   = _v(row, "EarningsBeat", False)
+    canslim  = _v(row, "CANSLIM_Pass", False)
+    above200 = _v(row, "Above_200MA", False)
+    ema8     = _v(row, "8EMA")
+    ema21    = _v(row, "21EMA")
+    ma200    = _v(row, "200MA")
+    high52   = _v(row, "52W High")
+    dist     = _v(row, "Dist_52W_High%")
+    p200     = _v(row, "Price_vs_200MA%")
+    timing   = _v(row, "LT_Entry_Timing", "")
+    earn     = _v(row, "EarningsDate", "N/A")
+    cat      = _v(row, "Category", "—")
+
+    # ── Star rating: score/20, floor 1 star (cards are pass-gated) ─────────
+    n_stars = max(1, min(5, round(score / 20)))
+    stars = ('<span style="color:#c9a227;font-size:16px;letter-spacing:2px">'
+             + "★" * n_stars + '<span style="color:#d9d7ce">'
+             + "☆" * (5 - n_stars) + "</span></span>")
+
+    # ── Reasons checklist ───────────────────────────────────────────────────
+    def _detail(val, fmt="{:+.1f}%"):
+        return fmt.format(val) if isinstance(val, (int, float)) else ""
+
+    reasons = [
+        ("RS Leadership (rank > 80)",
+         rs_rank is not None and rs_rank > 80,
+         f"rank {rs_rank:.0f}" if rs_rank is not None else ""),
+        ("EPS Growth > 25%",  eps_g is not None and eps_g > 25, _detail(eps_g)),
+        ("Revenue Growth > 20%", rev_g is not None and rev_g > 20, _detail(rev_g)),
+        ("Above 200 MA", above200 is True, _detail(p200)),
+        ("FCF Positive", fcf is True, ""),
+        ("Earnings Beat", earn_b is True, ""),
+        ("Institutional Buying",
+         inst_chg is not None and inst_chg > 0, _detail(inst_chg)),
+        ("CANSLIM", canslim is True, ""),
+    ]
+    reason_rows = "".join(
+        f'<div style="display:flex;gap:6px;font-size:12px;line-height:1.7">'
+        f'<span style="color:{"#0F6E56" if ok else "#A32D2D"};min-width:14px">'
+        f'{"✓" if ok else "✗"}</span>'
+        f'<span style="color:#0b0b0b">{_html.escape(label)}</span>'
+        f'<span style="color:#898781;margin-left:auto">{_html.escape(detail)}</span>'
+        f'</div>'
+        for label, ok, detail in reasons
+    )
+
+    # ── Tranche entry plan: Buy now 25% / 8EMA 25% / 21EMA 50% ─────────────
+    def _lvl(px):
+        if not px or not price:
+            return "—"
+        rel = (px / price - 1) * 100
+        return f"{_fmt(px)} ({_pct(rel)})"
+
+    tranches = [("Buy now", "25%", _fmt(price)),
+                ("Buy at 8EMA", "25%", _lvl(ema8)),
+                ("Buy at 21EMA", "50%", _lvl(ema21))]
+    tranche_rows = "".join(
+        f'<div style="display:flex;gap:6px;font-size:12px;line-height:1.7">'
+        f'<span style="color:#0b0b0b;min-width:110px">{label}:</span>'
+        f'<span style="font-weight:600;color:#085041;min-width:36px">{alloc}</span>'
+        f'<span style="color:#52514e">{level}</span></div>'
+        for label, alloc, level in tranches
+    )
+    timing_note = ""
+    if timing:
+        note = timing
+        if _regime_mult("Long-Term") < 1.0:
+            note += (f" · {_ACTIVE_REGIME['regime'].upper()} regime — halve "
+                     f"each tranche")
+        timing_note = (f'<div style="font-size:10px;color:#898781;'
+                       f'margin-top:4px">{_html.escape(note)}</div>')
+
+    # ── Review triggers + target ────────────────────────────────────────────
+    stop = (f"Weekly close below 200MA {_fmt(ma200)} "
+            f"(now {_pct(p200)} above) · RS rank falls below 40 "
+            f"· earnings miss + guidance cut. Trim, don't average down.")
+    if high52 and price and high52 > price * 1.03:
+        target = (f"T1 52W high {_fmt(high52)} ({_pct((high52 / price - 1) * 100)}); "
+                  f"beyond, hold while the checklist stays green — "
+                  f"reassess quarterly, 6-24 mo horizon.")
+    else:
+        target = ("At/near 52W high — let it run while the checklist stays "
+                  "green; reassess quarterly, 6-24 mo horizon.")
+    stop, target = (_html.escape(str(x)) for x in (stop, target))
+
+    def _plan_line(label, bg, fg, text):
+        return (f'<div style="display:flex;gap:6px;align-items:flex-start;'
+                f'margin-bottom:4px;font-size:11px">'
+                f'<span style="min-width:42px;text-align:center;background:{bg};color:{fg};'
+                f'padding:1px 5px;border-radius:3px;font-size:10px;font-weight:500;'
+                f'flex-shrink:0">{label}</span>'
+                f'<span style="color:#52514e;line-height:1.4">{text}</span></div>')
+
+    cat_border, cat_bg, cat_txt = _card_color(cat)
+    return f"""
+    <div style="background:white;border:0.5px solid #e1e0d9;border-radius:12px;
+                padding:14px 16px;break-inside:avoid;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <div>
+          <span style="font-size:17px;font-weight:500;color:#0b0b0b">{ticker}</span>{_research_link(ticker)}
+          <span style="font-size:13px;color:#898781;margin-left:6px">${price:,.2f}</span>
+          <div style="font-size:10px;color:#898781">{_html.escape(str(name))} · {_html.escape(str(sector))}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          <span title="Investment score {score:.0f}/100">{stars}</span>
+          <span style="background:{cat_bg};color:{cat_txt};font-size:10px;font-weight:500;
+                       padding:2px 7px;border-radius:4px">{cat}</span>
+        </div>
+      </div>
+
+      <div style="font-size:11px;font-weight:600;color:#898781;margin-bottom:2px">REASONS</div>
+      <div style="margin-bottom:10px">{reason_rows}</div>
+
+      <div style="font-size:11px;font-weight:600;color:#898781;margin-bottom:2px">ENTRY</div>
+      <div style="background:#f9f9f7;border-radius:8px;padding:8px 10px;margin-bottom:8px">
+        {tranche_rows}{timing_note}
+      </div>
+
+      <div style="border-top:0.5px solid #e1e0d9;padding-top:8px">
+        {_plan_line("REVIEW", "#FCEBEB", "#791F1F", stop)}
+        {_plan_line("TARGET", "#E6F1FB", "#0C447C", target)}
+      </div>
+
+      <div style="margin-top:7px;font-size:10px;color:#898781">
+        Earns {earn} {'✓' if earn_b else ''} ·
+        Dist {_pct(dist)} from 52W high ·
+        {_pct(p200)} vs 200MA
+      </div>
+    </div>"""
+
+
 def _section(title: str, color: str, icon: str, rows: list[dict], section_key: str) -> str:
     if not rows:
+        empty_msg = (
+            "No name passed all six filters (RS_Rank&gt;80 · EPS&gt;25% · "
+            "revenue&gt;20% · 200MA · FCF+ · earnings beat) — see the "
+            "longterm CSV for near-misses."
+            if section_key == "Long-Term"
+            else "No candidates found — try loosening thresholds."
+        )
         return f"""
         <div style="background:white;border:0.5px solid #e1e0d9;border-radius:12px;padding:20px">
           <h3 style="font-size:15px;font-weight:500;color:#0b0b0b;margin:0 0 6px">
             {icon} {title}
           </h3>
-          <p style="font-size:13px;color:#898781;margin:0">No candidates found — try loosening thresholds.</p>
+          <p style="font-size:13px;color:#898781;margin:0">{empty_msg}</p>
         </div>"""
 
-    cards_html = "".join(_stock_card(r, section_key) for r in rows)
+    cards_html = "".join(
+        _longterm_card(r) if section_key == "Long-Term" else _stock_card(r, section_key)
+        for r in rows
+    )
     return f"""
     <div style="background:white;border:0.5px solid #e1e0d9;border-radius:12px;padding:16px 18px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
@@ -822,76 +1031,852 @@ def _gappers_html(rows: list[dict], fetch_catalysts: bool = True) -> str:
 </div>"""
 
 
-CATEGORY_ORDER = ["Momentum", "Momentum-Pullback", "VCP Setup",
-                  "Turnaround", "Longterm Hold", "Avoid", "Error"]
 
-_CATEGORY_COLORS = {
-    "Momentum":          "#185FA5", "Momentum-Pullback": "#0F6E56",
-    "VCP Setup":         "#26215C", "Turnaround":        "#633806",
-    "Longterm Hold":     "#3B6D11", "Avoid":             "#898781",
-    "Error":             "#A32D2D",
+_REGIME_COLORS = {
+    "Bullish":   ("#E1F5EE", "#085041", "#0F6E56"),
+    "Neutral":   ("#FAEEDA", "#633806", "#8a6d1a"),
+    "Defensive": ("#FCEBEB", "#791F1F", "#A32D2D"),
 }
 
 
-def _categories_html(rows: list[dict]) -> str:
-    """Full category breakdown — every scanned ticker, grouped by category,
-    as collapsible tables below the Top-5 grid. Avoid/Error start collapsed."""
-    sections = []
-    for cat in CATEGORY_ORDER:
-        sub = [r for r in rows if _v(r, "Category") == cat]
-        if not sub:
-            continue
-        sub.sort(key=lambda r: _v(r, "Rank_Score", 0) or 0, reverse=True)
-        color = _CATEGORY_COLORS.get(cat, "#444441")
-        is_open = "" if cat in ("Avoid", "Error") else " open"
+def _regime_banner_html(regime: dict) -> str:
+    """Full-width regime strip: verdict badge, drivers, per-horizon sizing."""
+    bg, fg, accent = _REGIME_COLORS.get(regime["regime"],
+                                        _REGIME_COLORS["Neutral"])
+    m = regime["multipliers"]
+    drivers = " · ".join(_html.escape(d) for d in regime["drivers"])
+    mult_chips = "".join(
+        f'<span style="background:white;border:0.5px solid {accent};color:{fg};'
+        f'font-size:11px;font-weight:500;padding:3px 10px;border-radius:5px">'
+        f'{label} ×{m[key]:g}</span>'
+        for key, label in (("day", "Day"), ("swing", "Swing"),
+                           ("longterm", "Long-Term"))
+    )
+    src = {"market_pulse": "VIX + index trend + mega-cap breadth",
+           "scan_breadth": "scan-universe breadth (pulse unavailable)",
+           "none": "no market data"}.get(regime["source"], regime["source"])
+    return f"""
+    <div style="background:{bg};border:0.5px solid {accent};border-radius:12px;
+                padding:14px 18px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="background:{accent};color:white;font-size:13px;font-weight:600;
+                     padding:4px 14px;border-radius:6px">MARKET REGIME: {regime["regime"].upper()}</span>
+        <span style="font-size:12px;color:{fg}">score {regime["score"]:+d} · {src}</span>
+        <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">{mult_chips}</span>
+      </div>
+      <div style="font-size:12px;color:{fg};margin-top:8px">{drivers}</div>
+      <div style="font-size:12px;color:{fg};margin-top:4px;font-weight:500">
+        {_html.escape(regime["guidance"])}</div>
+    </div>"""
 
-        trs = []
-        for r in sub:
-            rvol   = _v(r, "RVOL_Intraday") or _v(r, "RVOL")
-            reason = _html.escape(str(_v(r, "Cat_Reason", ""))[:110])
-            grade  = _v(r, "Grade", "—") or "—"
-            g_txt, g_bg = _GRADE_COLORS.get(grade, ("#444441", "#F1EFE8"))
-            def n(key, fmt="{:.1f}"):
-                val = _v(r, key)
-                return fmt.format(val) if isinstance(val, (int, float)) else "—"
-            trs.append(
-                f'<tr style="border-top:0.5px solid #e1e0d9">'
-                f'<td style="padding:5px 10px;font-weight:600">{_v(r, "Ticker", "?")}</td>'
-                f'<td style="padding:5px 10px">{_fmt(_v(r, "Current Price"))}</td>'
-                f'<td style="padding:5px 10px"><span style="background:{g_bg};color:{g_txt};'
-                f'font-size:10px;font-weight:600;padding:1px 6px;border-radius:3px">{grade}</span></td>'
-                f'<td style="padding:5px 10px">{_v(r, "Rank_Score", "—")}</td>'
-                f'<td style="padding:5px 10px">{n("Dist_52W_High%")}%</td>'
-                f'<td style="padding:5px 10px">{f"{rvol:.2f}" if isinstance(rvol, (int, float)) else "—"}</td>'
-                f'<td style="padding:5px 10px">{n("RSI_14", "{:.0f}")}</td>'
-                f'<td style="padding:5px 10px">{n("ADX_14", "{:.0f}")}</td>'
-                f'<td style="padding:5px 10px">{n("RS")}</td>'
-                f'<td style="padding:5px 10px">{n("ATR_Pct")}%</td>'
-                f'<td style="padding:5px 10px;font-size:11px;color:#52514e">{reason}</td></tr>')
 
-        sections.append(f"""
-<details{is_open} style="background:white;border:0.5px solid #e1e0d9;border-radius:12px;
-                 padding:10px 16px;margin-bottom:12px">
-  <summary style="cursor:pointer;font-size:14px;font-weight:600;color:{color}">
-    {cat} ({len(sub)})</summary>
-  <div style="overflow-x:auto">
-  <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px">
-    <tr style="color:#898781;font-size:10px;text-align:left">
-      <th style="padding:4px 10px">TICKER</th><th style="padding:4px 10px">PRICE</th>
-      <th style="padding:4px 10px">GRADE</th><th style="padding:4px 10px">SCORE</th>
-      <th style="padding:4px 10px">52W HIGH</th><th style="padding:4px 10px">RVOL</th>
-      <th style="padding:4px 10px">RSI</th><th style="padding:4px 10px">ADX</th>
-      <th style="padding:4px 10px">RS</th><th style="padding:4px 10px">ATR%</th>
-      <th style="padding:4px 10px">REASON</th></tr>
-    {''.join(trs)}
-  </table>
-  </div>
-</details>""")
+def _decision_center_html(top_day: list[dict], top_swing: list[dict],
+                          top_lt: list[dict], regime: dict) -> str:
+    """
+    Highest-conviction pick per horizon, with why-now one-liner and the
+    regime-adjusted risk budget — the 30-second answer to "what do I actually
+    do today?" before scrolling the full sections.
+    """
+    m = regime["multipliers"]
 
-    if not sections:
+    def _col(title, icon, picks, horizon, one_liner_fn):
+        risk = RISK_PER_TRADE_PCT * m[horizon]
+        head = (f'<div style="font-size:11px;color:#898781;margin-bottom:6px">'
+                f'{icon} {title} · risk budget {risk:g}% of acct</div>')
+        if not picks:
+            return (f'<div style="flex:1;min-width:220px">{head}'
+                    f'<div style="font-size:13px;color:#898781">No qualified '
+                    f'candidate today.</div></div>')
+        best, rest = picks[0], picks[1:3]
+        line = _html.escape(one_liner_fn(best))
+        rest_txt = (" · next: " + ", ".join(
+            f"{_v(r, 'Ticker', '?')} ({_v(r, '_dashboard_score', 0):.0f})"
+            for r in rest)) if rest else ""
+        return f"""
+        <div style="flex:1;min-width:220px">{head}
+          <div style="font-size:19px;font-weight:600;color:#0b0b0b">
+            {_v(best, "Ticker", "?")}
+            <span style="font-size:12px;font-weight:500;color:#898781;margin-left:4px">
+              ${(_v(best, "Current Price", 0) or 0):,.2f} · score {_v(best, "_dashboard_score", 0):.0f}</span>
+          </div>
+          <div style="font-size:12px;color:#52514e;margin-top:3px;line-height:1.5">{line}</div>
+          <div style="font-size:10px;color:#898781;margin-top:3px">{rest_txt}</div>
+        </div>"""
+
+    def _day_line(r):
+        vwap = "above VWAP" if _v(r, "Above_VWAP") else "below VWAP"
+        return (f"gap {_pct(_v(r, 'Gap%') or _v(r, 'Gap_Now%'))}, "
+                f"RVOL {(_v(r, 'RVOL_Intraday') or _v(r, 'RVOL') or 0):.1f}, {vwap}, "
+                f"ORB {_v(r, 'ORB_Status') or '—'}")
+
+    def _swing_line(r):
+        rr = _v(r, "RR_T2")
+        return (f"{_v(r, 'Category', '—')}, grade {_v(r, 'Grade', '—')}"
+                + (f", R:R {rr:.1f}" if rr else "")
+                + f", RSI {(_v(r, 'RSI_14') or 0):.0f}")
+
+    def _lt_line(r):
+        return _v(r, "LT_Entry_Timing", "all six filters pass")
+
+    cols = "".join([
+        _col("DAY TRADE", "⚡", top_day, "day", _day_line),
+        _col("SWING", "📈", top_swing, "swing", _swing_line),
+        _col("LONG-TERM", "🏦", top_lt, "longterm", _lt_line),
+    ])
+    return f"""
+    <div style="background:white;border:0.5px solid #e1e0d9;border-radius:12px;
+                padding:16px 18px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <span style="font-size:18px">🎯</span>
+        <h3 style="font-size:15px;font-weight:500;color:#0b0b0b;margin:0">Decision Center — highest conviction per horizon</h3>
+      </div>
+      <div style="display:flex;gap:20px;flex-wrap:wrap">{cols}</div>
+    </div>"""
+
+
+def _market_summary_text(regime: dict, rows: list[dict], top_day: list[dict],
+                         top_swing: list[dict], top_lt: list[dict],
+                         pulse: dict | None) -> str:
+    """
+    Plain-language day-in-review, assembled from the scan facts. If an
+    ANTHROPIC_API_KEY is set (and the anthropic package installed) the facts
+    are rewritten by Claude for flow; otherwise this template text ships
+    as-is, so the summary never depends on the network.
+    """
+    total   = len(rows)
+    n_mom   = sum(1 for r in rows if _v(r, "Category") == "Momentum")
+    n_mp    = sum(1 for r in rows if _v(r, "Category") == "Momentum-Pullback")
+    n_avoid = sum(1 for r in rows if _v(r, "Category") in ("Avoid", "Error"))
+    n_pass  = sum(1 for r in rows if _v(r, "Investment_Pass"))
+
+    p1 = (f"The tape reads {regime['regime']} "
+          f"(score {regime['score']:+d}, {', '.join(regime['drivers'][:3])}). "
+          f"{regime['guidance']}")
+
+    parts = [f"Of {total} names scanned, {n_mom} are in confirmed momentum, "
+             f"{n_mp} are pulling back constructively, and {n_avoid} have no "
+             f"tradeable setup."]
+    if top_day:
+        b = top_day[0]
+        parts.append(f"The strongest intraday tape is {_v(b, 'Ticker')} "
+                     f"(day score {_v(b, '_dashboard_score', 0):.0f}).")
+    if top_swing:
+        b = top_swing[0]
+        parts.append(f"Best swing setup: {_v(b, 'Ticker')} — "
+                     f"{_v(b, 'Category', '')} at swing score "
+                     f"{_v(b, '_dashboard_score', 0):.0f}.")
+    p2 = " ".join(parts)
+
+    if n_pass:
+        lt_names = ", ".join(_v(r, "Ticker", "?") for r in top_lt)
+        p3 = (f"For the long book, {n_pass} name(s) pass all six investment "
+              f"filters ({lt_names} lead) — but several are extended above "
+              f"their 200MA, so tranche entries beat chasing.")
+    else:
+        p3 = ("No name passes all six long-term filters today — the long "
+              "book waits; review near-misses in the longterm CSV.")
+
+    paras = [p1, p2, p3]
+
+    secs = _sector_strength(rows)
+    if len(secs) >= 2:
+        lead, lag = secs[0], secs[-1]
+        paras.append(f"Sector rotation: {lead['sector']} leads (median RS "
+                     f"rank {lead['median']:.0f} — {', '.join(lead['top'])}) "
+                     f"while {lag['sector']} lags "
+                     f"(rank {lag['median']:.0f}).")
+
+    n_ext = sum(1 for r in rows
+                if any(t == "EXTENDED" for t, _ in (r.get("Conv_Tags") or [])))
+    if n_ext >= 3:
+        paras.append(f"{n_ext} leaders are extended above their moving "
+                     f"averages — favor pullback entries over chasing "
+                     f"breakouts.")
+
+    m = regime["multipliers"]
+    paras.append(f"Position sizing for the day: day trades ×{m['day']:g}, "
+                 f"swings ×{m['swing']:g}, long-term tranches "
+                 f"×{m['longterm']:g} of the normal "
+                 f"{RISK_PER_TRADE_PCT:g}% risk budget.")
+
+    text = "\n\n".join(paras)
+    return _ai_polish(text) or text
+
+
+def _ai_polish(facts: str) -> str | None:
+    """Optional: rewrite the template summary with Claude for readability.
+    Returns None (caller keeps the template) unless a key is configured."""
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return None
+    try:
+        import anthropic
+        client = anthropic.Anthropic()
+        msg = client.messages.create(
+            model="claude-sonnet-5",
+            max_tokens=400,
+            messages=[{"role": "user", "content":
+                       "Rewrite this trading-desk morning summary as 3-4 "
+                       "crisp plain-English sentences a portfolio manager "
+                       "would read aloud. Keep every number. No preamble.\n\n"
+                       + facts}],
+        )
+        out = "".join(b.text for b in msg.content if b.type == "text").strip()
+        return out or None
+    except Exception as e:
+        print(f"[Dashboard] AI summary polish unavailable ({e}) — using template")
+        return None
+
+
+def _market_summary_html(summary: str) -> str:
+    paras = "".join(
+        f'<p style="font-size:13px;color:#52514e;line-height:1.6;margin:0 0 8px">'
+        f'{_html.escape(p)}</p>'
+        for p in summary.split("\n\n") if p.strip())
+    return f"""
+    <div style="background:white;border:0.5px solid #e1e0d9;border-radius:12px;
+                padding:16px 18px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:18px">🗞️</span>
+        <h3 style="font-size:15px;font-weight:500;color:#0b0b0b;margin:0">AI Market Brief</h3>
+      </div>
+      {paras}
+    </div>"""
+
+
+def _alloc_bars(pcts: list) -> str:
+    """Horizontal allocation bars (label, pct-of-portfolio)."""
+    if not pcts:
+        return '<span style="font-size:11px;color:#898781">—</span>'
+    peak = max(p for _, p in pcts) or 1
+    return "".join(
+        f'<div style="display:flex;align-items:center;gap:8px;margin:3px 0">'
+        f'<span style="min-width:110px;font-size:11px;color:#0b0b0b">{_html.escape(str(k))}</span>'
+        f'<div style="flex:1;background:#f1efea;border-radius:3px;height:10px">'
+        f'<div style="width:{max(2, round(p / peak * 100))}%;background:#185FA5;'
+        f'height:10px;border-radius:3px"></div></div>'
+        f'<span style="min-width:44px;text-align:right;font-size:11px;'
+        f'font-weight:600">{p:.1f}%</span></div>'
+        for k, p in pcts)
+
+
+def _portfolio_html(view: list[dict], totals: dict,
+                    alloc: dict | None = None) -> str:
+    """Portfolio & Watchlist panel. Empty portfolio → setup instructions."""
+    if not view:
+        return f"""
+        <div style="background:white;border:0.5px solid #e1e0d9;border-radius:12px;
+                    padding:20px;margin-bottom:16px">
+          <h3 style="font-size:15px;font-weight:500;color:#0b0b0b;margin:0 0 6px">
+            💼 Portfolio &amp; Watchlist</h3>
+          <p style="font-size:13px;color:#898781;margin:0">
+            No portfolio file found. Copy <code>data/portfolio_template.csv</code>
+            to <code>data/portfolio.csv</code> and list your positions
+            (Ticker, Shares, Avg_Cost, Entry_Date, Strategy
+            day/swing/longterm/watch, optional Stop/Target, Notes).
+            Rows with 0 shares are watchlist-only.</p>
+        </div>"""
+
+    gain = totals.get("total_gain")
+    gain_c = "#0F6E56" if (gain or 0) >= 0 else "#A32D2D"
+    gain_txt = (f'<span style="color:{gain_c};font-weight:600">'
+                f'{"+" if gain >= 0 else ""}{gain:,.2f} '
+                f'({totals["total_gain_pct"]:+.1f}%)</span>'
+                if gain is not None else "—")
+
+    rows_html = []
+    for p in view:
+        watch = p["Is_Watch"]
+        alerts = "".join(
+            f'<div style="font-size:10px;color:{"#791F1F" if "⛔" in a else "#633806"}">'
+            f'{_html.escape(a)}</div>' for a in p["Alerts"])
+        g_pct, g_usd = p["Gain_Pct"], p["Gain_Dollars"]
+        g_color = "#0F6E56" if (g_pct or 0) >= 0 else "#A32D2D"
+        g_pct_html = (f'<span style="color:{g_color}">{g_pct:+.1f}%</span>'
+                      if g_pct is not None else "—")
+        g_usd_html = (f'<span style="color:{g_color}">{g_usd:+,.0f}</span>'
+                      if g_usd is not None else "—")
+        action = p["Next_Action"]
+        act_urgent = action.split(" ")[0] in ("EXIT", "TRIM", "REDUCE", "REVIEW")
+        act_html = (f'<span style="font-weight:600;'
+                    f'color:{"#791F1F" if act_urgent else "#0b0b0b"}">'
+                    f'{_html.escape(action)}</span>')
+        rows_html.append(f"""
+        <tr style="border-top:0.5px solid #e1e0d9;{'opacity:0.65' if watch else ''}">
+          <td style="padding:6px 8px;font-weight:600">{p['Ticker']}{_research_link(p['Ticker'])}</td>
+          <td style="padding:6px 8px">{p['Strategy']}</td>
+          <td style="padding:6px 8px">{p.get('Cap') or '—'}</td>
+          <td style="padding:6px 8px;text-align:right">{p['Shares']:g}</td>
+          <td style="padding:6px 8px;text-align:right">{_fmt(p['Avg_Cost'])}</td>
+          <td style="padding:6px 8px;text-align:right">{_fmt(p['Price'])}</td>
+          <td style="padding:6px 8px;text-align:right">{g_pct_html}</td>
+          <td style="padding:6px 8px;text-align:right">{g_usd_html}</td>
+          <td style="padding:6px 8px;text-align:right">{f"{p['Alloc_Pct']:.1f}%" if p.get('Alloc_Pct') is not None else '—'}</td>
+          <td style="padding:6px 8px;text-align:right">{p['Days_Held'] if p['Days_Held'] is not None else '—'}</td>
+          <td style="padding:6px 8px;text-align:right">{_fmt(p['Risk'], decimals=0)}</td>
+          <td style="padding:6px 8px;text-align:right">{_fmt(p['Stop'])}</td>
+          <td style="padding:6px 8px;text-align:right">{_fmt(p['Target'])}</td>
+          <td style="padding:6px 8px">{act_html}</td>
+          <td style="padding:6px 8px">{alerts or '<span style="font-size:10px;color:#0F6E56">✓ clear</span>'}
+              <div style="font-size:10px;color:#898781">{_html.escape(p['Notes'] or '')}</div></td>
+        </tr>""")
+
+    return f"""
+    <div style="background:white;border:0.5px solid #e1e0d9;border-radius:12px;
+                padding:16px 18px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+        <span style="font-size:18px">💼</span>
+        <h3 style="font-size:15px;font-weight:500;color:#0b0b0b;margin:0">Portfolio &amp; Watchlist</h3>
+        <span style="margin-left:auto;font-size:12px;color:#52514e">
+          portfolio ${totals.get('portfolio_value') or 0:,.0f} ·
+          invested ${totals['total_value']:,.0f}
+          ({totals.get('invested_pct') or 0:g}%) ·
+          cash ${totals.get('cash') or 0:,.0f} ·
+          gain {gain_txt} ·
+          at-risk ${totals.get('total_risk') or 0:,.0f} ·
+          {totals['alerts']} alert(s)</span>
+      </div>
+      <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="color:#898781;font-size:10px;text-align:left">
+          <th style="padding:4px 8px">TICKER</th><th style="padding:4px 8px">STRATEGY</th>
+          <th style="padding:4px 8px">CAP</th>
+          <th style="padding:4px 8px;text-align:right">SHARES</th>
+          <th style="padding:4px 8px;text-align:right">AVG COST</th>
+          <th style="padding:4px 8px;text-align:right">PRICE</th>
+          <th style="padding:4px 8px;text-align:right">GAIN %</th>
+          <th style="padding:4px 8px;text-align:right">GAIN $</th>
+          <th style="padding:4px 8px;text-align:right">ALLOC %</th>
+          <th style="padding:4px 8px;text-align:right">DAYS HELD</th>
+          <th style="padding:4px 8px;text-align:right">RISK $</th>
+          <th style="padding:4px 8px;text-align:right">STOP</th>
+          <th style="padding:4px 8px;text-align:right">TARGET</th>
+          <th style="padding:4px 8px">NEXT ACTION</th>
+          <th style="padding:4px 8px">ALERTS / NOTES</th>
+        </tr></thead>
+        <tbody>{''.join(rows_html)}</tbody>
+      </table></div>
+      {_alloc_footer_html(alloc, totals)}
+    </div>"""
+
+
+def _alloc_footer_html(alloc: dict | None, totals: dict) -> str:
+    """Cap-bucket + sector allocation bars, warnings, and the risk budget."""
+    if not alloc:
         return ""
-    return ('<h2 style="font-size:16px;font-weight:600;margin:24px 0 12px">'
-            'All Categories</h2>' + "".join(sections))
+    warn_html = "".join(
+        f'<div style="background:#FCEBEB;color:#791F1F;font-size:11px;'
+        f'padding:5px 10px;border-radius:6px;margin-top:6px">⚠ {_html.escape(w)}</div>'
+        for w in alloc.get("warnings") or [])
+    pv = alloc.get("portfolio_value") or 0
+    risk_budget = pv * RISK_PER_TRADE_PCT / 100
+    return f"""
+      <div style="display:flex;gap:28px;flex-wrap:wrap;border-top:0.5px solid #e1e0d9;
+                  margin-top:10px;padding-top:10px">
+        <div style="flex:1;min-width:220px">
+          <div style="font-size:11px;font-weight:600;color:#898781;margin-bottom:4px">
+            MARKET-CAP ALLOCATION (% of portfolio)</div>
+          {_alloc_bars(alloc.get("caps") or [])}
+        </div>
+        <div style="flex:1;min-width:220px">
+          <div style="font-size:11px;font-weight:600;color:#898781;margin-bottom:4px">
+            SECTOR ALLOCATION (% of portfolio)</div>
+          {_alloc_bars(alloc.get("sectors") or [])}
+        </div>
+        <div style="min-width:180px">
+          <div style="font-size:11px;font-weight:600;color:#898781;margin-bottom:4px">
+            RISK BUDGET</div>
+          <div style="font-size:12px;line-height:1.8;color:#0b0b0b">
+            Portfolio <b>${pv:,.0f}</b><br>
+            Max risk per trade <b>{RISK_PER_TRADE_PCT:g}%</b> =
+            <b>${risk_budget:,.0f}</b><br>
+            <span style="font-size:10px;color:#898781">
+              regime-scaled on each card's R:R·SIZE line</span></div>
+        </div>
+      </div>
+      {warn_html}"""
+
+
+# ── Prioritization layer (conviction engine UI) ──────────────────────────────
+
+_ACTION_STYLE = {"READY": ("🟢", "#E1F5EE", "#085041"),
+                 "WATCH": ("🟡", "#FAEEDA", "#633806"),
+                 "AVOID": ("🔴", "#FCEBEB", "#791F1F")}
+_TAG_STYLE = {"good": ("#E1F5EE", "#085041"),
+              "warn": ("#FAEEDA", "#633806"),
+              "bad":  ("#FCEBEB", "#791F1F")}
+_WHY_MARK = {"+": ("✅", "#0F6E56"), "!": ("⚠", "#8a6d1a"),
+             "-": ("❌", "#A32D2D")}
+
+
+def _stars_html(n: int, size: int = 15) -> str:
+    n = max(0, min(5, int(n)))
+    return (f'<span style="color:#c9a227;font-size:{size}px;letter-spacing:2px">'
+            + "★" * n + '<span style="color:#d9d7ce">' + "☆" * (5 - n)
+            + "</span></span>")
+
+
+# Macro keyword → tag for the Economic News panel. A headline qualifies by
+# matching at least one entry; MARKET-only matches rank behind true macro ones.
+_MACRO_TAGS = (
+    ("fed ", "FED"), ("fomc", "FED"), ("powell", "FED"),
+    ("rate cut", "FED"), ("rate hike", "FED"), ("interest rate", "FED"),
+    ("central bank", "FED"),
+    ("inflation", "INFLATION"), ("cpi", "INFLATION"), ("ppi", "INFLATION"),
+    ("pce", "INFLATION"),
+    ("jobs report", "JOBS"), ("payroll", "JOBS"), ("unemployment", "JOBS"),
+    ("jobless", "JOBS"), ("labor market", "JOBS"),
+    ("tariff", "TRADE"), ("trade deal", "TRADE"), ("trade war", "TRADE"),
+    ("china", "TRADE"), ("export", "TRADE"),
+    ("treasury", "RATES"), ("yield", "RATES"), ("10-year", "RATES"),
+    ("bond market", "RATES"),
+    ("gdp", "GROWTH"), ("recession", "GROWTH"), ("soft landing", "GROWTH"),
+    ("consumer spending", "GROWTH"), ("retail sales", "GROWTH"),
+    ("oil price", "ENERGY"), ("opec", "ENERGY"), ("crude", "ENERGY"),
+    ("stock market", "MARKET"), ("s&p 500", "MARKET"), ("nasdaq", "MARKET"),
+    ("dow", "MARKET"), ("wall street", "MARKET"), ("sell-off", "MARKET"),
+    ("selloff", "MARKET"), ("rally", "MARKET"), ("vix", "MARKET"),
+)
+
+_MACRO_TAG_COLORS = {
+    "FED": ("#EEEDFE", "#26215C"), "INFLATION": ("#FCEBEB", "#791F1F"),
+    "JOBS": ("#E6F1FB", "#0C447C"), "TRADE": ("#FAEEDA", "#633806"),
+    "RATES": ("#E6F1FB", "#0C447C"), "GROWTH": ("#E1F5EE", "#085041"),
+    "ENERGY": ("#FAEEDA", "#633806"), "MARKET": ("#F1EFE8", "#444441"),
+}
+
+
+def _macro_tags(title: str) -> list[str]:
+    t = f" {title.lower()} "
+    return sorted({label for kw, label in _MACRO_TAGS if kw in t})
+
+
+def _econ_news_html(max_items: int = 6) -> str:
+    """
+    Major economic/market-moving headlines — pulled from the index feeds
+    (SPY/QQQ/^GSPC/^VIX), deduped, kept only when macro-tagged, with
+    macro-specific stories ranked above generic market wrap-ups. Sits above
+    the market-pulse strip (whose econ calendar covers the Fed outlook).
+    Network-dependent; returns '' on failure or when nothing qualifies.
+    """
+    from stockanalysis.reporting.research import _fetch_ticker_news
+    items, seen = [], set()
+    for symbol in ("SPY", "QQQ", "^GSPC", "^VIX"):
+        try:
+            for n in _fetch_ticker_news(symbol, limit=10):
+                tags = _macro_tags(n["title"])
+                if not tags:
+                    continue
+                # Wire services re-publish the same story with reworded
+                # titles ("Update: …") — dedupe on source + tags + the
+                # title's opening, not the exact string
+                key = (n["publisher"], tuple(tags),
+                       n["title"].strip().lower()[:35])
+                if key in seen:
+                    continue
+                seen.add(key)
+                n["tags"] = tags
+                items.append(n)
+        except Exception:
+            continue
+    if not items:
+        return ""
+    # newest first, then macro-specific above bare market wrap-ups
+    # (stable sorts compose: second sort preserves date order within bands)
+    items.sort(key=lambda n: n["when"], reverse=True)
+    items.sort(key=lambda n: n["tags"] == ["MARKET"])
+    items = items[:max_items]
+
+    lis = []
+    for n in items:
+        chips = "".join(
+            f'<span style="background:{_MACRO_TAG_COLORS.get(t, ("#F1EFE8", "#444441"))[0]};'
+            f'color:{_MACRO_TAG_COLORS.get(t, ("#F1EFE8", "#444441"))[1]};'
+            f'font-size:9px;font-weight:600;padding:1px 6px;border-radius:3px;'
+            f'margin-right:4px">{t}</span>' for t in n["tags"])
+        title = _html.escape(n["title"][:160])
+        link = (f'<a href="{_html.escape(n["url"])}" target="_blank" '
+                f'style="color:#0b0b0b;text-decoration:none">{title}</a>'
+                if n.get("url") else title)
+        lis.append(
+            f'<div style="font-size:12px;line-height:1.5;margin-bottom:7px">'
+            f'<span style="color:#898781;font-size:10px">{_html.escape(n["when"])}</span> '
+            f'{chips}<br>{link}'
+            f'<span style="color:#898781;font-size:10px"> — {_html.escape(n["publisher"])}</span></div>')
+    return f"""
+    <div style="background:white;border:0.5px solid #e1e0d9;border-radius:12px;
+                padding:16px 18px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:18px">🌐</span>
+        <h3 style="font-size:15px;font-weight:500;color:#0b0b0b;margin:0">
+          Economic News — macro headlines moving stocks</h3>
+        <span style="margin-left:auto;font-size:11px;color:#898781">
+          as of {datetime.now():%H:%M} · Fed/econ calendar below</span>
+      </div>
+      {''.join(lis)}
+    </div>"""
+
+
+def _day_session_html(output_dir: Path) -> str:
+    """
+    Day Session Universe panel — renders day_session.json written by the
+    scheduler's _initialize_day_session() at market open (hot movers merged
+    with the day-trade base list). '' when the file is missing; marked stale
+    when it isn't from today.
+    """
+    import json
+    f = Path(output_dir) / "day_session.json"
+    if not f.exists():
+        return ""
+    try:
+        data = json.loads(f.read_text())
+    except Exception as e:
+        print(f"[Dashboard] day_session.json unreadable ({e}) — skipped")
+        return ""
+    hot   = data.get("hot") or []
+    base  = data.get("base") or []
+    is_today = data.get("date") == datetime.now().strftime("%Y-%m-%d")
+    stale = ("" if is_today else
+             f'<span style="background:#FCEBEB;color:#791F1F;font-size:10px;'
+             f'font-weight:600;padding:2px 8px;border-radius:4px">'
+             f'STALE — from {_html.escape(str(data.get("date")))}</span>')
+
+    def _chips(tickers, bg, fg, bold=False):
+        return "".join(
+            f'<span style="background:{bg};color:{fg};font-size:11px;'
+            f'{"font-weight:600;" if bold else ""}padding:3px 9px;'
+            f'border-radius:5px;margin:0 4px 4px 0;display:inline-block">'
+            f'{_html.escape(str(t))}{_research_link(t)}</span>'
+            for t in tickers)
+
+    return f"""
+    <div style="background:white;border:0.5px solid #e1e0d9;border-radius:12px;
+                padding:16px 18px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <span style="font-size:18px">🔔</span>
+        <h3 style="font-size:15px;font-weight:500;color:#0b0b0b;margin:0">
+          Day Session Universe</h3>
+        {stale}
+        <span style="margin-left:auto;font-size:11px;color:#898781">
+          initialized {_html.escape(str(data.get("updated_at", "?")))} ·
+          {len(hot)} movers + {len(base)} base = {len(data.get("merged") or [])} tickers</span>
+      </div>
+      <div style="font-size:11px;font-weight:600;color:#8a6d1a;margin-bottom:3px">
+        🔥 HOT MOVERS (from market-movers scan at open)</div>
+      <div style="margin-bottom:8px">{_chips(hot, "#FAEEDA", "#633806", bold=True)
+          or '<span style="font-size:11px;color:#898781">none captured</span>'}</div>
+      <div style="font-size:11px;font-weight:600;color:#898781;margin-bottom:3px">
+        BASE DAY-TRADE LIST</div>
+      <div>{_chips(base, "#f1efea", "#0b0b0b")}</div>
+    </div>"""
+
+
+def _hero_html(opp: dict, regime: dict) -> str:
+    """Today's Opportunity — the single number you see first."""
+    risk_bg, risk_fg = {"LOW": ("#E1F5EE", "#085041"),
+                        "MEDIUM": ("#FAEEDA", "#633806"),
+                        "HIGH": ("#FCEBEB", "#791F1F")}.get(
+                            opp["risk"], ("#F1EFE8", "#444441"))
+    return f"""
+    <div style="background:white;border:0.5px solid #e1e0d9;border-radius:12px;
+                padding:20px 24px;margin-bottom:16px;display:flex;gap:28px;
+                align-items:center;flex-wrap:wrap">
+      <div>
+        <div style="font-size:11px;font-weight:600;color:#898781;letter-spacing:0.5px">
+          TODAY'S OPPORTUNITY</div>
+        <div style="font-size:44px;font-weight:650;color:#0b0b0b;line-height:1.1">
+          {opp["score"]}<span style="font-size:20px;color:#898781;font-weight:500">/100</span></div>
+        <div>{_stars_html(opp["stars"], 18)}</div>
+      </div>
+      <div style="flex:1;min-width:200px">
+        <div style="font-size:16px;font-weight:500;color:#0b0b0b">{_html.escape(opp["label"])}</div>
+        <div style="font-size:12px;color:#52514e;margin-top:4px">
+          {opp["n_ready"]} name(s) READY 🟢 · regime {regime["regime"]}</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:11px;font-weight:600;color:#898781;letter-spacing:0.5px">RISK</div>
+        <div style="background:{risk_bg};color:{risk_fg};font-size:18px;font-weight:650;
+                    padding:6px 22px;border-radius:8px;margin-top:4px">{opp["risk"]}</div>
+      </div>
+    </div>"""
+
+
+def _priority_queue_html(rows: list[dict], top_n: int = 10) -> str:
+    """Trade Priority Queue — triage: where to focus, in order."""
+    # Triage order: action first (all 🟢 above all 🟡 above all 🔴), then
+    # conviction within each band — a READY 70 beats a WATCH 85 for "what do
+    # I do right now"
+    ranked = sorted((r for r in rows if r.get("Conv_Overall") is not None
+                     and _v(r, "Category") != "Error"),
+                    key=lambda r: ({"READY": 0, "WATCH": 1, "AVOID": 2}
+                                   .get(r.get("Conv_Action"), 3),
+                                   -r["Conv_Overall"]))
+    # READY/WATCH first, then the top avoided names as explicit "don't touch"
+    # entries — the red rows are information too
+    active = [r for r in ranked if r.get("Conv_Action") != "AVOID"][:top_n]
+    avoided = [r for r in ranked if r.get("Conv_Action") == "AVOID"
+               and r.get("Conv_Overall", 0) >= 50][:max(2, top_n - len(active))]
+    queue = (active + avoided)[:top_n]
+    if not queue:
+        return ""
+
+    trs = []
+    for i, r in enumerate(queue, 1):
+        dot, a_bg, a_fg = _ACTION_STYLE.get(r.get("Conv_Action"),
+                                            _ACTION_STYLE["AVOID"])
+        why = r.get("Conv_Why") or []
+        first_why = (f'{_WHY_MARK[why[0][0]][0]} {_html.escape(why[0][1])}'
+                     if why else "")
+        q, s, t = (r.get("Conv_Quality", 0), r.get("Conv_Setup", 0),
+                   r.get("Conv_Timing", 0))
+        trs.append(f"""
+        <tr style="border-top:0.5px solid #e1e0d9">
+          <td style="padding:7px 8px;font-weight:600;color:#898781">{dot} {i}</td>
+          <td style="padding:7px 8px;font-weight:650;font-size:14px">{_v(r, "Ticker", "?")}{_research_link(_v(r, "Ticker"))}</td>
+          <td style="padding:7px 8px">{_stars_html(r.get("Conv_Stars", 1), 13)}</td>
+          <td style="padding:7px 8px"><span style="background:{a_bg};color:{a_fg};
+              font-size:11px;font-weight:600;padding:3px 9px;border-radius:5px">
+              {_html.escape(r.get("Conv_Action_Reason", ""))}</span></td>
+          <td style="padding:7px 8px;text-align:right">{_fmt(_v(r, "Current Price"))}</td>
+          <td style="padding:7px 8px;text-align:right;font-size:11px;color:#52514e">
+              Q {q} · S {s} · T {t}</td>
+          <td style="padding:7px 8px;font-size:11px;color:#52514e">{first_why}</td>
+        </tr>""")
+
+    return f"""
+    <div style="background:white;border:0.5px solid #e1e0d9;border-radius:12px;
+                padding:16px 18px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:18px">🚦</span>
+        <h3 style="font-size:15px;font-weight:500;color:#0b0b0b;margin:0">Trade Priority Queue</h3>
+        <span style="margin-left:auto;font-size:11px;color:#898781">
+          🟢 ready · 🟡 watch · 🔴 avoid — ranked by conviction</span>
+      </div>
+      <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="color:#898781;font-size:10px;text-align:left">
+          <th style="padding:4px 8px">PRIORITY</th><th style="padding:4px 8px">TICKER</th>
+          <th style="padding:4px 8px">CONFIDENCE</th><th style="padding:4px 8px">ACTION</th>
+          <th style="padding:4px 8px;text-align:right">PRICE</th>
+          <th style="padding:4px 8px;text-align:right">QUALITY·SETUP·TIMING</th>
+          <th style="padding:4px 8px">TOP REASON</th></tr></thead>
+        <tbody>{''.join(trs)}</tbody>
+      </table></div>
+    </div>"""
+
+
+_HEAT_ROWS = [
+    ("Momentum",         lambda r: _v(r, "Category") == "Momentum",         "#185FA5"),
+    ("Swing (MP + VCP)", lambda r: _v(r, "Category") in
+                                   ("Momentum-Pullback", "VCP Setup"),      "#0F6E56"),
+    ("Long-term pass",   lambda r: bool(_v(r, "Investment_Pass")),          "#3B6D11"),
+    ("Turnaround",       lambda r: _v(r, "Category") == "Turnaround",       "#8a6d1a"),
+    ("Avoid",            lambda r: _v(r, "Category") in ("Avoid", "Error"), "#898781"),
+]
+
+
+def _heatmap_html(rows: list[dict]) -> str:
+    """Category heat map — one glance at where today's opportunity sits."""
+    counts = [(label, sum(1 for r in rows if pred(r)), color)
+              for label, pred, color in _HEAT_ROWS]
+    peak = max((c for _, c, _ in counts), default=0) or 1
+    bars = "".join(
+        f'<div style="display:flex;align-items:center;gap:10px;margin:5px 0">'
+        f'<span style="min-width:130px;font-size:12px;color:#0b0b0b">{label}</span>'
+        f'<div style="flex:1;background:#f1efea;border-radius:4px;height:16px">'
+        f'<div style="width:{max(2, round(c / peak * 100))}%;background:{color};'
+        f'height:16px;border-radius:4px"></div></div>'
+        f'<span style="min-width:34px;text-align:right;font-size:12px;'
+        f'font-weight:600;color:{color}">{c}</span></div>'
+        for label, c, color in counts)
+    return f"""
+    <div style="background:white;border:0.5px solid #e1e0d9;border-radius:12px;
+                padding:16px 18px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-size:18px">📊</span>
+        <h3 style="font-size:15px;font-weight:500;color:#0b0b0b;margin:0">Scan Heat Map</h3>
+        <span style="margin-left:auto;font-size:11px;color:#898781">{len(rows)} tickers scanned</span>
+      </div>
+      {bars}
+    </div>"""
+
+
+def _sector_strength(rows: list[dict]) -> list[dict]:
+    """Sectors ranked by median RS_Rank of their members (≥2 members)."""
+    by = {}
+    for r in rows:
+        sec, rk = _v(r, "Sector"), r.get("RS_Rank")
+        if not sec or sec == "N/A" or rk is None:
+            continue
+        by.setdefault(sec, []).append((rk, _v(r, "Ticker", "?")))
+    out = []
+    for sec, members in by.items():
+        if len(members) < 2:
+            continue
+        ranks = sorted(rk for rk, _ in members)
+        out.append({"sector": sec, "median": ranks[len(ranks) // 2],
+                    "n": len(members),
+                    "top": [t for _, t in sorted(members, reverse=True)[:3]]})
+    out.sort(key=lambda s: -s["median"])
+    return out
+
+
+def _sector_rotation_html(rows: list[dict]) -> str:
+    """Leaders / laggards by sector + best names inside the strongest ones."""
+    secs = _sector_strength(rows)
+    if len(secs) < 2:
+        return ""
+    leaders, laggards = secs[:3], secs[-3:][::-1]
+
+    def _col(title, items, color):
+        lis = "".join(
+            f'<div style="font-size:12px;line-height:1.8;color:#0b0b0b">'
+            f'{_html.escape(s["sector"])} '
+            f'<span style="color:#898781">(rank {s["median"]:.0f} · {s["n"]})</span></div>'
+            for s in items)
+        return (f'<div style="flex:1;min-width:180px">'
+                f'<div style="font-size:11px;font-weight:600;color:{color};'
+                f'margin-bottom:4px">{title}</div>{lis}</div>')
+
+    best = []
+    lead_names = {s["sector"] for s in leaders}
+    for r in sorted(rows, key=lambda r: -(r.get("RS_Rank") or 0)):
+        if _v(r, "Sector") in lead_names and _v(r, "Ticker") not in best:
+            best.append(_v(r, "Ticker"))
+        if len(best) >= 6:
+            break
+    best_html = " · ".join(f"<b>{t}</b>" for t in best)
+
+    return f"""
+    <div style="background:white;border:0.5px solid #e1e0d9;border-radius:12px;
+                padding:16px 18px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:18px">🔄</span>
+        <h3 style="font-size:15px;font-weight:500;color:#0b0b0b;margin:0">Sector Rotation</h3>
+        <span style="margin-left:auto;font-size:11px;color:#898781">
+          by median RS rank within this scan</span>
+      </div>
+      <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:8px">
+        {_col("TODAY'S LEADERS", leaders, "#0F6E56")}
+        {_col("TODAY'S WEAKEST", laggards, "#A32D2D")}
+      </div>
+      <div style="border-top:0.5px solid #e1e0d9;padding-top:8px;font-size:12px;color:#52514e">
+        Best stocks inside strongest sectors: {best_html or "—"}</div>
+    </div>"""
+
+
+def _conviction_strip_html(row: dict) -> str:
+    """Per-card strip: action chip, confidence stars, Quality/Setup/Timing
+    split, why checklist, risk tags. '' when the conviction layer didn't run."""
+    if row.get("Conv_Overall") is None:
+        return ""
+    dot, a_bg, a_fg = _ACTION_STYLE.get(row.get("Conv_Action"),
+                                        _ACTION_STYLE["AVOID"])
+    tags = "".join(
+        f'<span style="background:{_TAG_STYLE[lv][0]};color:{_TAG_STYLE[lv][1]};'
+        f'font-size:9px;font-weight:600;padding:2px 6px;border-radius:3px;'
+        f'margin-right:4px">{_html.escape(label)}</span>'
+        for label, lv in (row.get("Conv_Tags") or []))
+    why_items = "".join(
+        f'<div style="font-size:11px;line-height:1.6">'
+        f'<span style="color:{_WHY_MARK[m][1]}">{_WHY_MARK[m][0]}</span> '
+        f'<span style="color:#52514e">{_html.escape(txt)}</span></div>'
+        for m, txt in (row.get("Conv_Why") or [])[:5])
+    return f"""
+      <div style="background:#f9f9f7;border-radius:8px;padding:8px 10px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px">
+          <span style="background:{a_bg};color:{a_fg};font-size:11px;font-weight:600;
+                       padding:2px 9px;border-radius:5px">{dot} {row.get("Conv_Action", "")}</span>
+          {_stars_html(row.get("Conv_Stars", 1), 13)}
+          <span style="font-size:10px;color:#898781;margin-left:auto">
+            Quality {row.get("Conv_Quality", 0)} · Setup {row.get("Conv_Setup", 0)} ·
+            Timing {row.get("Conv_Timing", 0)}</span>
+        </div>
+        {why_items}
+        <div style="margin-top:5px">{tags}</div>
+      </div>"""
+
+
+# ── Research-page links + Turnaround Recovery panel ──────────────────────────
+
+# Tickers with a generated research page (data/output/research/<T>.html).
+# Populated by generate_dashboard(); card/table builders read it.
+_RESEARCH_PAGES: set = set()
+
+
+def _research_link(ticker) -> str:
+    """📄 link to the ticker's research page, '' if none was generated."""
+    if not ticker or ticker not in _RESEARCH_PAGES:
+        return ""
+    return (f' <a href="research/{ticker}.html" target="_blank" '
+            f'style="text-decoration:none;font-size:12px" '
+            f'title="Open research page">📄</a>')
+
+
+_REC_STAGE_STYLE = {
+    "Bottoming":       ("🔴", "#FCEBEB", "#791F1F"),
+    "Recovering":      ("🟡", "#FAEEDA", "#633806"),
+    "Trend Confirmed": ("🟢", "#E1F5EE", "#085041"),
+}
+
+
+def _turnaround_html(recovery: list[dict]) -> str:
+    """Turnaround Recovery panel — which beaten-down names are becoming
+    investable, with maturity stage, balanced why/risks, and an entry rule."""
+    if not recovery:
+        return ""
+    trs = []
+    for r in recovery:
+        stage = r.get("Rec_Stage", "Bottoming")
+        dot, s_bg, s_fg = _REC_STAGE_STYLE.get(stage,
+                                               _REC_STAGE_STYLE["Bottoming"])
+        why = "".join(f'<div style="font-size:11px;line-height:1.5;color:#0F6E56">'
+                      f'· {_html.escape(w)}</div>'
+                      for w in (r.get("Rec_Why") or [])[:3]) or \
+              '<span style="font-size:11px;color:#898781">no repair signals yet</span>'
+        risks = "".join(f'<div style="font-size:11px;line-height:1.5;color:#A32D2D">'
+                        f'· {_html.escape(w)}</div>'
+                        for w in (r.get("Rec_Risks") or [])[:3]) or \
+                '<span style="font-size:11px;color:#898781">—</span>'
+        trs.append(f"""
+        <tr style="border-top:0.5px solid #e1e0d9;vertical-align:top">
+          <td style="padding:8px;font-weight:650;font-size:14px">
+              {_v(r, "Ticker", "?")}{_research_link(_v(r, "Ticker"))}
+              <div style="font-size:10px;color:#898781;font-weight:400">
+                {_fmt(_v(r, "Current Price"))} · {_pct(_v(r, "Dist_52W_High%"))} off high</div></td>
+          <td style="padding:8px"><span style="background:{s_bg};color:{s_fg};
+              font-size:11px;font-weight:600;padding:3px 9px;border-radius:5px;
+              white-space:nowrap">{dot} {stage}</span></td>
+          <td style="padding:8px">{_stars_html(r.get("Rec_Stars", 1), 13)}</td>
+          <td style="padding:8px">{why}</td>
+          <td style="padding:8px">{risks}</td>
+          <td style="padding:8px;font-size:11px;color:#52514e;max-width:220px">
+              {_html.escape(r.get("Rec_Entry", ""))}</td>
+        </tr>""")
+
+    return f"""
+    <div style="background:white;border:0.5px solid #e1e0d9;border-radius:12px;
+                padding:16px 18px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:18px">🔧</span>
+        <h3 style="font-size:15px;font-weight:500;color:#0b0b0b;margin:0">
+          Turnaround Recovery — beaten-down names becoming investable</h3>
+        <span style="margin-left:auto;font-size:11px;color:#898781">
+          ≥35% off 52W high · 🔴 bottoming → 🟡 recovering → 🟢 trend confirmed</span>
+      </div>
+      <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="color:#898781;font-size:10px;text-align:left">
+          <th style="padding:4px 8px">TICKER</th>
+          <th style="padding:4px 8px">RECOVERY STAGE</th>
+          <th style="padding:4px 8px">CONFIDENCE</th>
+          <th style="padding:4px 8px">WHY IT MAY RECOVER</th>
+          <th style="padding:4px 8px">RISKS</th>
+          <th style="padding:4px 8px">ENTRY</th></tr></thead>
+        <tbody>{''.join(trs)}</tbody>
+      </table></div>
+      <div style="font-size:10px;color:#898781;margin-top:6px">
+        Speculative by nature — QUARTER size max; stage tells maturity, not certainty.</div>
+    </div>"""
 
 
 def generate_dashboard(
@@ -899,6 +1884,7 @@ def generate_dashboard(
     output_dir: str | Path = ".",
     open_browser: bool = True,
     include_market_pulse: bool = True,
+    include_portfolio: bool = True,
 ) -> str:
     """
     Build a Top-5 HTML dashboard from enriched scan rows.
@@ -908,6 +1894,9 @@ def generate_dashboard(
     rows         : list of dicts from get_metrics + categorize + enrich_row + put/call candidate
     output_dir   : folder to write the HTML file
     open_browser : auto-open in default browser (default True)
+    include_market_pulse : fetch the network-dependent market-pulse header
+    include_portfolio    : render the Portfolio & Watchlist panel (positions,
+                           P&L, allocation) — off gives a market-only dashboard
 
     Returns
     -------
@@ -920,9 +1909,88 @@ def generate_dashboard(
     run_time = datetime.now().strftime("%B %d, %Y  %H:%M")
     filepath = output_dir / f"dashboard_{ts}.html"
 
+    # Strategy scores may be missing when a caller passes rows that skipped
+    # scan_universe.main() (e.g. saved rows) — compute them here so the
+    # Long-Term section never renders empty for lack of columns
+    if rows and "Investment_Pass" not in rows[0]:
+        try:
+            from stockanalysis.core.strategy_scores import attach_strategy_scores
+            attach_strategy_scores(rows)
+        except Exception as e:
+            print(f"[Dashboard] strategy scores unavailable ({e})")
+
+    # Market pulse FIRST — the regime is derived from it, and the regime
+    # multiplier must be active before any card's sizing line renders.
+    # Network-dependent, so a failure just drops the strip, never the dashboard.
+    pulse, pulse_html = None, ""
+    econ_news_html = ""
+    if include_market_pulse:
+        try:
+            from stockanalysis.scanners.market_movers import market_pulse
+            pulse = market_pulse()
+            pulse_html = _market_pulse_html(pulse)
+        except Exception as e:
+            print(f"[Dashboard] market pulse unavailable ({e}) — header skipped")
+        # Macro headlines panel — rendered directly above the pulse strip
+        # (which carries the Fed/econ calendar outlook)
+        try:
+            econ_news_html = _econ_news_html()
+        except Exception as e:
+            print(f"[Dashboard] economic news unavailable ({e}) — skipped")
+
+    # Market regime → position-size multipliers for every card below
+    global _ACTIVE_REGIME
+    try:
+        from stockanalysis.core.market_regime import compute_regime
+        _ACTIVE_REGIME = compute_regime(pulse=pulse, rows=rows)
+    except Exception as e:
+        print(f"[Dashboard] regime unavailable ({e}) — full sizing")
+        _ACTIVE_REGIME = {"regime": "Neutral", "source": "none",
+                          "multipliers": {"day": 1.0, "swing": 1.0,
+                                          "longterm": 1.0}}
+    regime = _ACTIVE_REGIME
+
+    # Conviction layer: Quality/Setup/Timing splits, stars, why-checklists,
+    # risk tags, READY/WATCH/AVOID actions — feeds the hero panel, priority
+    # queue, and every card's conviction strip
+    opp = {"score": 0, "stars": 1, "label": "unavailable", "risk": "MEDIUM",
+           "n_ready": 0}
+    try:
+        from stockanalysis.core.conviction import (
+            attach_conviction, daily_opportunity)
+        attach_conviction(rows)
+        opp = daily_opportunity(rows, regime)
+    except Exception as e:
+        print(f"[Dashboard] conviction layer unavailable ({e})")
+
+    # Per-ticker research pages (data/output/research/<T>.html) — built
+    # before any card renders so the 📄 links know which pages exist.
+    # Charts need one bars-fetch per ticker; reuse the pulse flag as the
+    # "network allowed" signal.
+    global _RESEARCH_PAGES
+    _RESEARCH_PAGES = set()
+    try:
+        from stockanalysis.reporting.research import generate_research_pages
+        _RESEARCH_PAGES = generate_research_pages(
+            rows, output_dir, charts=include_market_pulse,
+            fetch_news=include_market_pulse)
+        print(f"[Dashboard] {len(_RESEARCH_PAGES)} research pages → "
+              f"{output_dir / 'research'}")
+    except Exception as e:
+        print(f"[Dashboard] research pages failed ({e}) — links skipped")
+
+    # Turnaround recovery watch — beaten-down names becoming investable
+    recovery = []
+    try:
+        from stockanalysis.core.conviction import recovery_candidates
+        recovery = recovery_candidates(rows)
+    except Exception as e:
+        print(f"[Dashboard] recovery watch failed ({e}) — skipped")
+
     # Compute top 5 for each section
     top_day   = _top5(rows, _day_trade_score,   min_score=20)
     top_swing = _top5(rows, _swing_trade_score, min_score=20)
+    top_lt    = _top5(rows, _longterm_score,    min_score=0)
     top_calls = _top5(rows, _call_score,        min_score=0)
     top_puts  = _top5(rows, _put_score,         min_score=0)
 
@@ -938,18 +2006,44 @@ def generate_dashboard(
 
     day_html   = _section("Day Trade Top 5",    "#2a78d6", "⚡", top_day,   "Day Trade")
     swing_html = _section("Swing Trade Top 5",  "#1baf7a", "📈", top_swing, "Swing Trade")
+    lt_html    = _section("Long-Term Investment Top 5 (all filters pass)",
+                          "#639922", "🏦", top_lt, "Long-Term")
     calls_html = _section("Call Options Top 5", "#639922", "🟢", top_calls, "Calls")
     puts_html  = _section("Put Options Top 5",  "#e34948", "🔴", top_puts,  "Puts")
 
-    # Market pulse header — VIX, SPY/QQQ strength, top-10 mega caps, catalysts.
-    # Network-dependent, so a failure just drops the strip, never the dashboard.
-    pulse_html = ""
-    if include_market_pulse:
+    # Workstation panels: hero score, regime banner, priority queue, heat
+    # map, sector rotation, AI brief, decision center, portfolio & watchlist.
+    # Each is independent — a failure drops that panel only.
+    hero_html     = _hero_html(opp, regime)
+    regime_html   = _regime_banner_html(regime)
+    decision_html = _decision_center_html(top_day, top_swing, top_lt, regime)
+    queue_html = heatmap_html = sector_html = turnaround_html = ""
+    day_session_html = ""
+    try:
+        queue_html   = _priority_queue_html(rows)
+        heatmap_html = _heatmap_html(rows)
+        sector_html  = _sector_rotation_html(rows)
+        turnaround_html = _turnaround_html(recovery)
+        day_session_html = _day_session_html(output_dir)
+    except Exception as e:
+        print(f"[Dashboard] prioritization panels failed ({e}) — skipped")
+    try:
+        summary_html = _market_summary_html(
+            _market_summary_text(regime, rows, top_day, top_swing, top_lt, pulse))
+    except Exception as e:
+        print(f"[Dashboard] market summary failed ({e}) — skipped")
+        summary_html = ""
+    portfolio_html = ""
+    if include_portfolio:
         try:
-            from stockanalysis.scanners.market_movers import market_pulse
-            pulse_html = _market_pulse_html(market_pulse())
+            from stockanalysis.reporting.portfolio import (
+                load_positions, build_portfolio_view, portfolio_totals,
+                allocation_summary)
+            pf_view = build_portfolio_view(load_positions(), rows)
+            portfolio_html = _portfolio_html(pf_view, portfolio_totals(pf_view),
+                                             allocation_summary(pf_view))
         except Exception as e:
-            print(f"[Dashboard] market pulse unavailable ({e}) — header skipped")
+            print(f"[Dashboard] portfolio panel failed ({e}) — skipped")
 
     # Gappers table — catalysts need the network, so reuse the pulse flag
     try:
@@ -957,13 +2051,6 @@ def generate_dashboard(
     except Exception as e:
         print(f"[Dashboard] gappers section failed ({e}) — skipped")
         gappers_html = ""
-
-    # Full category breakdown (every scanned ticker)
-    try:
-        categories_html = _categories_html(rows)
-    except Exception as e:
-        print(f"[Dashboard] categories section failed ({e}) — skipped")
-        categories_html = ""
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -993,31 +2080,42 @@ def generate_dashboard(
 </head>
 <body>
 
-<h1>Stock Scan Dashboard</h1>
+<h1>Trading Workstation</h1>
 <p class="sub">Generated {run_time} · {total} tickers scanned</p>
 
-{pulse_html}
+{hero_html}
 
-<div class="kpi-row">
-  <div class="kpi"><div class="kpi-n">{total}</div><div class="kpi-l">Scanned</div></div>
-  <div class="kpi"><div class="kpi-n" style="color:#185FA5">{mom_count}</div><div class="kpi-l">Momentum</div></div>
-  <div class="kpi"><div class="kpi-n" style="color:#0F6E56">{mp_count}</div><div class="kpi-l">MP</div></div>
-  <div class="kpi"><div class="kpi-n" style="color:#633806">{ta_count}</div><div class="kpi-l">Turnaround</div></div>
-  <div class="kpi"><div class="kpi-n" style="color:#3B6D11">{call_count}</div><div class="kpi-l">Call signals</div></div>
-  <div class="kpi"><div class="kpi-n" style="color:#A32D2D">{put_count}</div><div class="kpi-l">Put signals</div></div>
-  <div class="kpi"><div class="kpi-n" style="color:#898781">{avoid_count}</div><div class="kpi-l">Avoided</div></div>
-</div>
+{regime_html}
+
+{summary_html}
+
+{day_session_html}
+
+{queue_html}
+
+{decision_html}
+
+{portfolio_html}
+
+{heatmap_html}
+
+{sector_html}
+
+{econ_news_html}
+
+{pulse_html}
 
 {gappers_html}
 
 <div class="grid">
   {day_html}
   {swing_html}
+  {lt_html}
   {calls_html}
   {puts_html}
 </div>
 
-{categories_html}
+{turnaround_html}
 
 <p style="margin-top:20px;font-size:11px;color:#898781;text-align:center">
   Not financial advice. All signals are algorithmic — verify before trading.

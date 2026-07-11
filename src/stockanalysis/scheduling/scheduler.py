@@ -73,8 +73,10 @@ from stockanalysis.scanners.scan_universe import main as run_scan, SP500_TICKERS
 from stockanalysis.reporting.dashboard import generate_dashboard, _score_to_grade  # dashboard + grading
 
 # ── Config ────────────────────────────────────────────────────────────────────
-#DAY_TRADE_TICKERS=[ 'META', 'MU', 'PLTR', 'MRVL', 'MSFT', 'NVDA', 'TSLA', 'AMD', 'AVGO', 'ARM']
-DAY_TRADE_TICKERS=['AMAT', 'WDC', 'GLW', 'MU', 'STX', 'COHR', 'NBIS', 'ARM', 'LITE', 'MRVL', 'PLTR', 'AVGO', 'HOOD', 'META', 'MSFT', 'NVDA', 'TSLA', 'AMD', 'CRWD']
+#
+DAY_TRADE_TICKERS=[ 'META','MSFT', 'NVDA', 'TSLA', 'AMD', 'AVGO']
+#DAY_TRADE_TICKERS=['COIN','AMAT', 'WDC', 'ARM', 'LITE', 'INTC', 'GLW', 'MU', 'HOOD', 'AAOI', 'STX', 'COHR', 'NBIS', 'MRVL', 'PLTR', 'AVGO', 'META', 'MSFT', 'NVDA', 'TSLA', 'AMD', 'CRWD']
+
 
 INTRADAY_TICKERS  = DAY_TRADE_TICKERS  #Daytrade only
 #WATCHLIST_TICKERS = WATCHLIST_TICKERS 
@@ -102,6 +104,10 @@ HISTORY_CSV     = REPORTS_DIR / "scan_history.csv"
 
 # VIX threshold above which put scans run every 30 min instead of once at noon
 VIX_ELEVATED_THRESHOLD = 25.0
+
+# Nightly output cleanup (scheduler loop, 23:30 ET Mon–Fri): delete generated
+# files older than this many days. 0 or negative disables the nightly job.
+CLEANUP_DAYS = int(os.environ.get("CLEANUP_DAYS", "7"))
 
 # Minimum grade to send an email alert
 EMAIL_GRADE_THRESHOLD = {"A+", "A"}
@@ -149,6 +155,19 @@ def _initialize_day_session() -> None:
     _dynamic_day_trade = merged
     DAY_TRADE_TICKERS = merged
 
+    # Persist for the dashboard's Day Session Universe panel — dashboards are
+    # often generated in another process (webapp/CLI), so module state alone
+    # would be invisible to them
+    try:
+        import json
+        base = [t for t in merged if t not in hot]
+        (REPORTS_DIR / "day_session.json").write_text(json.dumps({
+            "date": str(_now_et().date()),
+            "updated_at": _now_et().strftime("%Y-%m-%d %H:%M:%S ET"),
+            "hot": hot, "base": base, "merged": merged,
+        }, indent=1))
+    except Exception as e:
+        _log(f"⚠  day_session.json write failed ({e})")
 
     print("Dynamic Day trade stocks",_dynamic_day_trade)
 
@@ -741,6 +760,17 @@ def _start_scheduler() -> None:
 
     schedule.every().day.at("10:00").do(_maybe_add_vix_scans)
 
+    # ── Nightly output cleanup (23:30 ET) ────────────────────────
+    # Same pruning as `--cleanup N`, run automatically after the day's
+    # scans; CLEANUP_DAYS=0 in the environment disables it
+    if CLEANUP_DAYS > 0:
+        def job_nightly_cleanup():
+            cleanup_outputs(CLEANUP_DAYS)
+
+        schedule.every().day.at("23:30").do(job_nightly_cleanup)
+        _log(f"🧹 Nightly cleanup registered (23:30 ET, keep {CLEANUP_DAYS}d "
+             f"of outputs; set CLEANUP_DAYS=0 to disable)")
+
     _log("✅ Scheduler started. Jobs registered:")
     for job in schedule.jobs:
         _log(f"   {job}")
@@ -782,6 +812,35 @@ def _start_scheduler_test() -> None:
 
 
 
+# ── Output cleanup ────────────────────────────────────────────────────────────
+
+# Only generated artifacts are eligible for cleanup — never user state
+# (portfolio.csv), never the rolling history/tracker CSVs
+CLEANUP_PATTERNS = ("stock_scan_*.csv", "dashboard_*.html",
+                    "metrics_*.csv", "research/*.html")
+
+
+def cleanup_outputs(days: int = 7, reports_dir: Path | None = None) -> int:
+    """
+    Delete generated output files whose modification time is older than
+    `days` days. Returns the number of files removed.
+    """
+    base = Path(reports_dir) if reports_dir else REPORTS_DIR
+    cutoff = time.time() - days * 86400
+    removed = 0
+    for pattern in CLEANUP_PATTERNS:
+        for f in base.glob(pattern):
+            try:
+                if f.is_file() and f.stat().st_mtime < cutoff:
+                    f.unlink()
+                    removed += 1
+            except OSError as e:
+                _log(f"⚠  cleanup: could not remove {f.name} ({e})")
+    _log(f"🧹 Cleanup: removed {removed} file(s) older than {days}d "
+         f"from {base}")
+    return removed
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -798,11 +857,36 @@ def main() -> None:
         action="store_true",
         help="Bypass market health gate and run scan regardless of SPY/QQQ trend",
     )
-    args = parser.parse_args()
-
+    parser.add_argument(
+        "--cleanup",
+        nargs="?", const=7, type=int, metavar="DAYS",
+        help="Delete generated output files (scan CSVs, dashboards, research "
+             "pages) modified more than DAYS days ago, then exit. "
+             "Default 7 when the flag is given without a value.",
+    )
+    parser.add_argument(
+        "--research",
+        nargs="*", metavar="TICKER",
+        help="Refresh research pages for ONLY these tickers (fresh data "
+             "fetched just for them), then exit. With no tickers listed, "
+             "refreshes the DAY_TRADE_TICKERS list.",
+    )
     parser.add_argument("--test-scheduler", action="store_true",
                         help="Fire all jobs within 4 min and exit")
     args = parser.parse_args()
+
+    # One-shot maintenance/refresh actions — run whichever were asked, exit
+    if args.cleanup is not None or args.research is not None:
+        if args.cleanup is not None:
+            cleanup_outputs(args.cleanup)
+        if args.research is not None:
+            from stockanalysis.reporting.research import refresh_research
+            tickers = args.research or DAY_TRADE_TICKERS
+            _log(f"📄 Refreshing research pages for: {', '.join(tickers)}")
+            written = refresh_research(tickers)
+            _log(f"📄 Research refresh done — {len(written)} page(s) → "
+                 f"{REPORTS_DIR / 'research'}")
+        return
 
     if args.run_now:
         _log(f"One-shot mode: running {args.run_now.upper()} scan now")

@@ -1,0 +1,4 @@
+Ticker,Shares,Avg_Cost,Entry_Date,Strategy,Stop,Target,Notes
+NVDA,25,145.50,2026-05-12,longterm,,260,example: core AI position
+ARM,40,290.00,2026-07-08,swing,285.00,340,example: pullback add
+HOOD,0,,,watch,,,example: watchlist-only row (0 shares)

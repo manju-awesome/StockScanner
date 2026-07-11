@@ -18,6 +18,9 @@ data/output/*
 # Backtest price-bar cache (re-downloadable)
 data/cache/
 
+# User's real positions — personal financial data, never committed
+data/portfolio.csv
+
 # OS
 .DS_Store
 Thumbs.db

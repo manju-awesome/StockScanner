@@ -75,6 +75,7 @@ if __package__ in (None, ""):   # direct run: make `stockanalysis.*` importable
 
 from stockanalysis.core.metrics import get_metrics
 from stockanalysis.core.grade_signals import classify_grade_and_signals, enrich_rows
+from stockanalysis.core.strategy_scores import attach_strategy_scores
 from stockanalysis.reporting.signal_tracker import log_signals_from_rows, log_day_trades_from_rows
 from stockanalysis.core.put_candidate import compute_put_candidate
 from stockanalysis.core.call_candidate import compute_call_candidate
@@ -630,6 +631,15 @@ def categorize(row: dict) -> tuple:
 # MAIN
 # ─────────────────────────────────────────────────────────────────────────────
 def main(tickers: list) -> list:
+    # Dedupe here, not in cli() — the scheduler calls main() directly, and a
+    # duplicate ticker means two fetches minutes apart with slightly different
+    # live quotes → two rows whose RS_Rank can straddle a filter threshold
+    deduped = list(dict.fromkeys(tickers))
+    if len(deduped) != len(tickers):
+        log.info("Removed %d duplicate ticker(s) from universe",
+                 len(tickers) - len(deduped))
+    tickers = deduped
+
     run_ts = datetime.now().strftime("%Y%m%d_%H%M")
     print("Fetching QQQ 3-month return …")
 
@@ -672,6 +682,10 @@ def main(tickers: list) -> list:
     # ── Grade + entry/stop/target enrichment (earnings blackout & R:R gates) ──
     enrich_rows(rows)
 
+    # ── Strategy scores: Investment / Swing / DayTrade (needs RR_T2 from
+    #    enrich_rows and the full universe for the RS_Rank percentile) ─────────
+    attach_strategy_scores(rows)
+
     # ── Feedback loop: log A/B signals + day-trade candidates ────────────────
     n_logged = log_signals_from_rows(rows)
     if n_logged:
@@ -689,6 +703,8 @@ def main(tickers: list) -> list:
     priority = [
         "Scan_Time", "Ticker", "LongName", "Sector",
         "Category", "Cat_Reason", "Rank_Score",
+        "Investment_Score", "Swing_Score", "DayTrade_Score", "RS_Rank",
+        "Investment_Pass", "Swing_Pass", "DayTrade_Pass",
         "Grade", "RR_T2", "Days_To_Earnings", "SizeFlag",
         "Entry", "Stop", "Target", "Notes",
         "Entry_Gate_Pass", "Entry_Gate_Reason",
@@ -724,6 +740,9 @@ def main(tickers: list) -> list:
     full_path = out_dir / f"stock_scan_{run_ts}.csv"
     df.to_csv(full_path, index=False)
     log.info("Full results → %s  (%d rows)", full_path, len(df))
+
+    # ── Per-strategy CSVs + console tables ────────────────────────────────────
+    write_strategy_outputs(df, run_ts)
 
     # ── Summary CSV ───────────────────────────────────────────────────────────
     '''
@@ -770,6 +789,72 @@ def main(tickers: list) -> list:
 
     print_day_trade_section(rows)
     return rows
+
+
+# Rows below these scores are noise, not candidates — kept out of the strategy
+# CSVs so each list stays actionable without manual re-filtering
+STRATEGY_MIN_SCORE = 40
+
+# (name, score column, columns most relevant to that holding period)
+STRATEGY_OUTPUTS = [
+    ("longterm", "Investment", [
+        "Ticker", "LongName", "Sector", "Investment_Score", "Investment_Pass",
+        "LT_Entry_Timing",
+        "RS_Rank", "EPS_Growth%", "Revenue", "Above_200MA", "FCF_Positive",
+        "EarningsBeat", "Inst_Own%", "Inst_Own_Chg", "CANSLIM_Pass",
+        "Current Price", "Dist_52W_High%", "Pct_From_52W_Low%",
+        "Category", "Grade", "Investment_Reason",
+    ]),
+    ("swing", "Swing", [
+        "Ticker", "LongName", "Swing_Score", "Swing_Pass",
+        "Category", "Grade", "RR_T2", "ATR Shrinking", "RSI_14", "BB_PctB",
+        "Pullback_Vol_Ratio", "RS_Rank", "Days_To_Earnings", "SizeFlag",
+        "Current Price", "Entry", "Stop", "Target", "Swing_Reason",
+    ]),
+    ("daytrade", "DayTrade", [
+        "Ticker", "LongName", "DayTrade_Score", "DayTrade_Pass",
+        "Gap%", "Gap_Now%", "RVOL_Intraday", "RVOL", "Above_VWAP", "VWAP",
+        "ORB_High", "ORB_Low", "ORB_Status", "ATR_Pct", "ADX_14", "RS_Rank",
+        "Current Price", "Prev-Day High", "Prev-Day Low",
+        "Pre-Market High", "Pre-Market Low", "DayTrade_Reason",
+    ]),
+]
+
+
+def write_strategy_outputs(df: pd.DataFrame, run_ts: str,
+                           top_n: int = 10) -> None:
+    """
+    One ranked CSV per strategy (Investment / Swing / DayTrade), each holding
+    only the rows scoring >= STRATEGY_MIN_SCORE on that strategy's score,
+    sorted best-first, with the columns that matter for its holding period.
+    Also prints a top-N console table per strategy with the pass flag marking
+    the strict A-list (all primary filters green).
+    """
+    for suffix, prefix, cols in STRATEGY_OUTPUTS:
+        score_col = f"{prefix}_Score"
+        if score_col not in df.columns:
+            continue
+        sub = df[df[score_col].fillna(0) >= STRATEGY_MIN_SCORE]
+        sub = sub.sort_values([f"{prefix}_Pass", score_col],
+                              ascending=[False, False])
+        path = out_dir / f"stock_scan_{run_ts}_{suffix}.csv"
+        keep = [c for c in cols if c in sub.columns]
+        sub[keep].to_csv(path, index=False)
+        log.info("%s list → %s  (%d rows, %d pass all filters)",
+                 prefix, path, len(sub), int(sub[f"{prefix}_Pass"].sum()))
+
+        title = {"Investment": "LONG-TERM GROWTH (6-24 mo)",
+                 "Swing": "SWING (2 d - 8 wk)",
+                 "DayTrade": "DAY TRADE (intraday)"}[prefix]
+        print(f"\n── {title} — top {top_n} by {score_col} "
+              f"{'─' * max(1, 40 - len(title))}")
+        if sub.empty:
+            print(f"   none scored ≥ {STRATEGY_MIN_SCORE}")
+            continue
+        show = [c for c in keep if not c.endswith("_Reason")
+                and c not in ("Entry", "Stop", "Target", "LongName",
+                              "LT_Entry_Timing")][:12]
+        print(sub.head(top_n)[show].to_string(index=False))
 
 
 def print_day_trade_section(rows: list[dict], top_n: int = 10) -> None:
@@ -902,7 +987,7 @@ def cli() -> None:
         universe = UNIVERSE_MAP[args.universe]
         print(f"[Universe] {args.universe} ({len(universe)} tickers)")
 
-    rows = main(universe)
+    rows = main(universe)   # main() dedupes the universe itself
 
     SEP = "=" * 100
 
