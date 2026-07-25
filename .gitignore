@@ -24,3 +24,4 @@ data/portfolio.csv
 # OS
 .DS_Store
 Thumbs.db
+data/regime_latest.json

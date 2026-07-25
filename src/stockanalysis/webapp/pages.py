@@ -52,16 +52,132 @@ def _read_json(path: Path) -> dict | None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# OVERALL TREND (market regime)
+# ─────────────────────────────────────────────────────────────────────────────
+# Distinct from the `regime` tile in the market-status strip below, which is
+# snapshot.json's Bullish/Neutral/Defensive from core.market_regime and only
+# updates when a scan runs. This is the standalone 12-category −100…+100 read
+# from the shared scorer, run on demand and shared with the SPY_DayTrader
+# dashboard so both show identical numbers.
+
+def _regime_tone(score: float) -> str:
+    return "good" if score > 0.5 else ("bad" if score < -0.5 else "muted")
+
+
+def render_regime(report: dict | None) -> str:
+    if not report:
+        return empty("No overall-trend read yet — click “Overall trend” to run one.")
+    if report.get("error"):
+        return (f'<div style="background:#FCEBEB;color:#791F1F;padding:12px;'
+                f'border-radius:10px">Overall trend failed: {esc(report["error"])}</div>')
+
+    overall = report.get("overall_trend_score", 0.0)
+    prob = report.get("probabilities", {})
+    day = report.get("day_type", {})
+
+    def tile(label, value, tone="muted"):
+        colour = {"good": "#0F6E56", "bad": "#A32D2D"}.get(tone, "#0b0b0b")
+        return (f'<div style="flex:1;min-width:120px">'
+                f'<div style="font-size:11px;color:#898781">{esc(label)}</div>'
+                f'<div style="font-size:18px;font-weight:600;color:{colour}">{esc(str(value))}</div></div>')
+
+    tiles = (
+        tile("Overall trend score", f"{overall:+.1f}", _regime_tone(overall))
+        + tile("Primary bias", report.get("primary_bias", "—"), _regime_tone(overall))
+        + tile("Expected volatility", report.get("expected_volatility", "—"))
+        + tile("Bull / Bear / Neutral",
+               f"{prob.get('bullish_pct',0):.0f} / {prob.get('bearish_pct',0):.0f} / {prob.get('neutral_pct',0):.0f}%")
+        + tile("Trend / Range / Reversal",
+               f"{day.get('trend_day_pct',0):.0f} / {day.get('range_day_pct',0):.0f} / {day.get('reversal_day_pct',0):.0f}%")
+    )
+
+    def row(cells, tone="muted"):
+        return ('<tr style="border-top:1px solid #E7E4DA">'
+                + "".join(f'<td style="padding:6px 8px;font-size:12px;{s}">{c}</td>'
+                          for c, s in cells) + "</tr>")
+
+    rows = "".join(
+        row([(f'<b>{e["score"]:+.1f}</b>',
+              f'color:{"#0F6E56" if e["score"] > 0.5 else "#A32D2D" if e["score"] < -0.5 else "#898781"};'
+              f'white-space:nowrap'),
+             (esc(e["label"]), "font-weight:500"),
+             (esc(e["confidence"]), "color:#898781"),
+             (esc(e["evidence"]), "color:#444441")])
+        for e in report.get("scored", [])
+    )
+    rows += "".join(
+        row([("—", "color:#898781"), (esc(e["label"]), "color:#898781"),
+             (f'excluded: {esc(e["reason"])}', "color:#898781"), ("", "")])
+        for e in report.get("excluded", [])
+    )
+
+    warns = ""
+    for key, prefix in (("staleness_warning", ""),
+                        ("conflicting_categories", "Arguing against the aggregate: "),
+                        ("low_confidence_categories", "Low-confidence inputs: ")):
+        val = report.get(key)
+        if not val:
+            continue
+        text = val if isinstance(val, str) else prefix + ", ".join(val)
+        warns += (f'<div style="background:#FDF6E3;color:#7A5C00;padding:8px 10px;'
+                  f'border-radius:8px;font-size:12px;margin-top:8px">{esc(text)}</div>')
+
+    return f"""
+<div style="display:flex;gap:16px;flex-wrap:wrap">{tiles}</div>
+<div style="font-size:12px;color:#898781;margin-top:8px">
+  {esc(report.get("bias_rationale",""))} · {esc(report.get("score_note",""))}</div>
+{warns}
+<table style="width:100%;border-collapse:collapse;margin-top:10px">
+  <thead><tr style="text-align:left;color:#898781;font-size:11px">
+    <th style="padding:4px 8px">Score</th><th style="padding:4px 8px">Category</th>
+    <th style="padding:4px 8px">Conf.</th><th style="padding:4px 8px">Evidence</th>
+  </tr></thead><tbody>{rows}</tbody></table>
+<div style="font-size:11px;color:#898781;margin-top:6px">
+  Collected {esc(str(report.get("fetched_at","?")))} · session: {esc(str(report.get("session","?")))}</div>
+"""
+
+
+def _regime_card() -> str:
+    from stockanalysis.core import regime_client
+    return card(
+        "Overall trend",
+        '<div style="font-size:12px;color:#444441;margin-bottom:10px">'
+        'Scores today\'s market regime across 12 categories into a single −100…+100 read. '
+        'Run this before scanning — the regime decides which setups are worth taking. '
+        'Takes about 15 seconds.</div>'
+        '<button onclick="runRegime()" style="padding:7px 14px;border-radius:8px;'
+        'border:1px solid #D8D4C8;background:#fff;cursor:pointer;font-size:13px">'
+        'Overall trend</button> <span id="regime-status" style="font-size:12px;color:#898781"></span>'
+        f'<div id="regime-out" style="margin-top:10px">{render_regime(regime_client.load_cached())}</div>',
+        icon="🧭",
+    )
+
+
+REGIME_JS = """
+function runRegime() {
+  var s = document.getElementById('regime-status');
+  s.textContent = ' collecting market data…';
+  fetch('/api/regime', {method: 'POST'}).then(r => r.text()).then(html => {
+    document.getElementById('regime-out').innerHTML = html;
+    s.textContent = '';
+  }).catch(e => { s.textContent = ' failed: ' + e; });
+}
+"""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # DASHBOARD (home)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def dashboard_page() -> tuple[str, str]:
     snap = _read_json(OUTPUT_DIR / "snapshot.json")
     if not snap:
-        return card("", empty(
+        # The overall-trend read is independent of scan output, so it stays
+        # available even before the first scan has ever run.
+        return _regime_card() + card("", empty(
             "No scan yet. Click “+ New Scan” above to run your first scan — "
             "this page fills in with market status, opportunities, and alerts "
-            "once a scan completes."), pad="40px"), ""
+            "once a scan completes."), pad="40px"), REGIME_JS
 
     regime = snap.get("regime") or {}
     opp = snap.get("opportunity") or {}
@@ -190,7 +306,8 @@ def dashboard_page() -> tuple[str, str]:
         for f in dashboards) or empty("none yet")
 
     body = (
-        card("Market Status", market_html, "🌐")
+        _regime_card()
+        + card("Market Status", market_html, "🌐")
         + _ai_sentiment_teaser()
         + card("", hero, pad="20px 24px")
         + card("Portfolio", pf_body, "💼", right='<a href="/portfolio" style="font-size:11px">View all →</a>')
@@ -204,7 +321,8 @@ def dashboard_page() -> tuple[str, str]:
                 {card("Recent Dashboards", dash_html, "📊")}</div>
            </div>"""
     )
-    extra_js = "function onJobFinished(j) { setTimeout(() => location.reload(), 1200); }"
+    extra_js = ("function onJobFinished(j) { setTimeout(() => location.reload(), 1200); }"
+                + REGIME_JS)
     return body, extra_js
 
 

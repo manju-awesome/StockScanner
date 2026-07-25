@@ -100,6 +100,16 @@ class WorkstationHandler(SimpleHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         form = parse_qs(self.rfile.read(length).decode())
 
+        if self.path == "/api/regime":
+            # Runs the shared market-regime scorer (~15s) and returns rendered
+            # HTML rather than JSON — the report is presentation, not an API
+            # contract. Kept out of jobstore because it's a short synchronous
+            # read the caller waits on, not a long background scan.
+            from stockanalysis.core import regime_client
+            # _send_html takes bytes here (render_page already encodes).
+            self._send_html(pages.render_regime(regime_client.run_regime()).encode())
+            return
+
         if self.path == "/run":
             action = (form.get("action") or [""])[0]
             err = api.dispatch_run(action, form)
