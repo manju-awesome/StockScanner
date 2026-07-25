@@ -33,6 +33,7 @@ if __package__ in (None, ""):   # direct run: make `stockanalysis.*` importable
 
 from stockanalysis.core.put_candidate import compute_put_candidate
 from stockanalysis.core.call_candidate import compute_call_candidate
+from stockanalysis.core.key_levels import compute_key_levels, KEY_LEVEL_KEYS, KEY_LEVEL_DEFAULTS
 
 try:
     import yfinance as yf
@@ -40,8 +41,38 @@ except ImportError:
     print("yfinance not installed. Run: pip install yfinance", file=sys.stderr)
     sys.exit(1)
 import logging
+import time
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
+
+# ── Yahoo throttling retry ───────────────────────────────────────────────────
+# Yahoo rate-limits aggressively under heavy scanning. A throttled call either
+# raises (YFRateLimitError / HTTP 429) or silently returns partial data. The
+# raising cases get retried here with exponential backoff, because one 429 on
+# a load-bearing fetch husks the whole row: no price → entry gate fails →
+# a mega cap comes back categorized "Avoid" with every column blank.
+RETRY_ATTEMPTS = 3          # 1 try + 2 retries
+RETRY_BASE_DELAY = 2.0      # seconds; doubles per retry (2s, then 4s)
+
+
+def _is_throttle(e: Exception) -> bool:
+    s = str(e).lower()
+    return "rate limit" in s or "too many requests" in s or "429" in s
+
+
+def _with_retry(fn, ticker: str, what: str):
+    """fn() with backoff retries on rate-limit errors ONLY — anything else
+    (delisted ticker, bad symbol, network down) raises immediately, since
+    retrying can't fix it and would stall the scan loop."""
+    for attempt in range(RETRY_ATTEMPTS):
+        try:
+            return fn()
+        except Exception as e:
+            if not _is_throttle(e) or attempt == RETRY_ATTEMPTS - 1:
+                raise
+            delay = RETRY_BASE_DELAY * (2 ** attempt)
+            log.warning("%s: %s throttled — retrying in %.0fs", ticker, what, delay)
+            time.sleep(delay)
 
 MARKET_TZ       = pytz.timezone("America/New_York")
 PREMARKET_START = datetime.strptime("04:00", "%H:%M").time()
@@ -402,7 +433,7 @@ def get_metrics(ticker: str, qqq_return_3m: float) -> dict:
 
     # ── 1. INFO ───────────────────────────────────────────────────────────────
     try:
-        info = t.info or {}
+        info = _with_retry(lambda: t.info or {}, ticker, ".info")
         row["Sector"]    = info.get("sector") or info.get("quoteType") or "N/A"
         row["LongName"]  = info.get("longName") or ticker
         row["MarketCap"] = info.get("marketCap")
@@ -410,6 +441,52 @@ def get_metrics(ticker: str, qqq_return_3m: float) -> dict:
         row["Sector"]    = "N/A"
         row["LongName"]  = ticker
         row["MarketCap"] = None
+
+    # Yahoo throttles .info's quote endpoint under heavy scanning and returns
+    # a PARTIAL dict — sector present, marketCap/longName missing — so a bare
+    # info.get() silently loses the cap. fast_info hits a lighter endpoint
+    # that usually still answers.
+    if row["MarketCap"] is None:
+        try:
+            cap = _with_retry(lambda: t.fast_info["market_cap"], ticker, "market_cap")
+            row["MarketCap"] = int(cap) if cap else None
+        except Exception:
+            pass
+
+    # Company overview for the research page — same `info` dict already
+    # fetched above, so this is free (no extra network call). No attempt at
+    # a "moat rating" here (that's a qualitative Morningstar-style judgment
+    # this data can't support) — just the raw margin figures that are one
+    # input into that kind of judgment, left for the reader to weigh.
+    try:
+        row["Industry"]           = info.get("industry")
+        row["BusinessSummary"]    = info.get("longBusinessSummary")
+        row["FullTimeEmployees"]  = info.get("fullTimeEmployees")
+        gm = info.get("grossMargins")
+        om = info.get("operatingMargins")
+        roe = info.get("returnOnEquity")
+        de = info.get("debtToEquity")
+        row["GrossMargin%"]     = round(gm * 100, 1) if gm is not None else None
+        row["OperatingMargin%"] = round(om * 100, 1) if om is not None else None
+        row["ReturnOnEquity%"]  = round(roe * 100, 1) if roe is not None else None
+        row["DebtToEquity"]     = round(de, 1) if de is not None else None
+    except Exception:
+        row["Industry"] = row["BusinessSummary"] = row["FullTimeEmployees"] = None
+        row["GrossMargin%"] = row["OperatingMargin%"] = row["ReturnOnEquity%"] = None
+        row["DebtToEquity"] = None
+
+    # Balance-sheet strength fields for the Financial Health score — same
+    # `info` dict, no extra network call.
+    try:
+        cr = info.get("currentRatio")
+        qr = info.get("quickRatio")
+        row["CurrentRatio"] = round(cr, 2) if cr is not None else None
+        row["QuickRatio"]   = round(qr, 2) if qr is not None else None
+        row["TotalCash"]    = info.get("totalCash")
+        row["TotalDebt"]    = info.get("totalDebt")
+    except Exception:
+        row["CurrentRatio"] = row["QuickRatio"] = None
+        row["TotalCash"] = row["TotalDebt"] = None
 
     try:
         row["Revenue"] = (
@@ -461,11 +538,74 @@ def get_metrics(ticker: str, qqq_return_3m: float) -> dict:
     except Exception:
         row["Inst_Own_Chg"] = None
 
+    # Top 13F holders that added to their position this filing period — reuses
+    # `ih` fetched just above rather than calling institutional_holders twice.
+    # Same pctChange==1.0 rename-artifact filter as Inst_Own_Chg.
+    try:
+        if (ih is not None and not ih.empty
+                and {"Holder", "pctHeld", "pctChange"} <= set(ih.columns)):
+            added = ih[(ih["pctChange"] > 0) & (ih["pctChange"] != 1.0)]
+            added = added.sort_values("pctChange", ascending=False).head(5)
+            row["Inst_13F_Added"] = [
+                {"holder": str(h), "pct_held": round(float(p) * 100, 2),
+                 "pct_change": round(float(c) * 100, 1)}
+                for h, p, c in zip(added["Holder"], added["pctHeld"], added["pctChange"])
+            ]
+        else:
+            row["Inst_13F_Added"] = []
+    except Exception:
+        row["Inst_13F_Added"] = []
+
+    # Insider buying, 6-month summary (SEC Form 4 filings via yfinance)
+    try:
+        ip = t.insider_purchases
+        if ip is not None and not ip.empty:
+            label_col, val_col, trans_col = ip.columns[0], ip.columns[1], ip.columns[2]
+            by_label = ip.set_index(label_col)
+
+            def _num(label, col):
+                try:
+                    v = by_label.loc[label, col]
+                    return None if v != v else float(v)   # NaN check
+                except Exception:
+                    return None
+
+            row["Insider_Buy_6m"] = {
+                "buy_shares":  _num("Purchases", val_col),
+                "buy_trans":   _num("Purchases", trans_col),
+                "sell_shares": _num("Sales", val_col),
+                "sell_trans":  _num("Sales", trans_col),
+                "net_shares":  _num("Net Shares Purchased (Sold)", val_col),
+            }
+        else:
+            row["Insider_Buy_6m"] = None
+    except Exception:
+        row["Insider_Buy_6m"] = None
+
+    try:
+        row["Forward_PE"] = (
+            round(info["forwardPE"], 2) if info.get("forwardPE") is not None else None
+        )
+    except Exception:
+        row["Forward_PE"] = None
+
+    try:
+        peg = info.get("trailingPegRatio")     # newer yfinance key
+        if peg is None:
+            peg = info.get("pegRatio")         # older/deprecated key
+        row["PEG_Ratio"] = round(peg, 2) if peg is not None else None
+    except Exception:
+        row["PEG_Ratio"] = None
+
     try:
         fcf = info.get("freeCashflow")
+        revenue = info.get("totalRevenue")
         row["FCF_Positive"] = bool(fcf > 0) if fcf is not None else None
+        row["FCF_Margin%"] = (round(fcf / revenue * 100, 1)
+                               if fcf is not None and revenue else None)
     except Exception:
         row["FCF_Positive"] = None
+        row["FCF_Margin%"] = None
 
     try:
         si = info.get("shortPercentOfFloat")
@@ -501,9 +641,10 @@ def get_metrics(ticker: str, qqq_return_3m: float) -> dict:
 
     # ── 3. CURRENT PRICE ─────────────────────────────────────────────────────
     try:
-        row["Current Price"] = round(float(t.fast_info["last_price"]), 2)
+        row["Current Price"] = round(float(
+            _with_retry(lambda: t.fast_info["last_price"], ticker, "price")), 2)
     except Exception as e:
-        log.debug("%s: current price failed (%s)", ticker, e)
+        log.warning("%s: current price failed (%s)", ticker, e)
         row["Current Price"] = None
 
     # ── 4. DAILY HISTORY (1 year) ────────────────────────────────────────────
@@ -511,7 +652,9 @@ def get_metrics(ticker: str, qqq_return_3m: float) -> dict:
     # raw closes drop on every ex-div date, skewing MAs/RSI/RS/52W stats.
     # (fetch_qqq_return() uses the same flag so RS subtracts like from like.)
     try:
-        daily = t.history(period="1y", interval="1d", auto_adjust=True)
+        daily = _with_retry(
+            lambda: t.history(period="1y", interval="1d", auto_adjust=True),
+            ticker, "daily history")
         computed = compute_daily_metrics(
             daily, qqq_return_3m,
             current_price=row["Current Price"],
@@ -532,6 +675,16 @@ def get_metrics(ticker: str, qqq_return_3m: float) -> dict:
                       "VWAP": None, "Above_VWAP": None,
                       "ORB_High": None, "ORB_Low": None, "ORB_Status": None,
                       "RVOL_Intraday": None}
+
+    # 5m/20d bars — shared by time-adjusted RVOL below and key-level detection
+    # (section 5b); fetched once here regardless of whether the regular
+    # session has started, since key levels don't depend on today's session.
+    try:
+        h5 = t.history(period="20d", interval="5m", auto_adjust=False)
+    except Exception as e:
+        log.debug("%s: 5m/20d history failed (%s)", ticker, e)
+        h5 = None
+
     try:
         intra = t.history(period="1d", interval="1m", prepost=True, auto_adjust=False)
         if not intra.empty:
@@ -587,7 +740,6 @@ def get_metrics(ticker: str, qqq_return_3m: float) -> dict:
                     session_date = idx_et[-1].date()
                     today_cum    = float(reg_df["Volume"].sum())
 
-                    h5 = t.history(period="10d", interval="5m", auto_adjust=False)
                     if h5 is not None and not h5.empty and today_cum > 0:
                         h5_et    = (h5.index.tz_convert(MARKET_TZ)
                                     if h5.index.tz is not None
@@ -620,6 +772,18 @@ def get_metrics(ticker: str, qqq_return_3m: float) -> dict:
         log.debug("%s: intraday failed (%s)", ticker, e)
         row.update(_intraday_none)
     row.setdefault("RVOL_EOD", row.get("RVOL"))   # always present, even w/o intraday
+
+    # ── 5b. KEY LEVELS (S1/R1 support/resistance + Key Level Score) ──────────
+    try:
+        row.update(compute_key_levels(
+            ticker, row.get("Current Price"), daily, h5,
+            atr20=row.get("ATR20"), ma50=row.get("50MA"), ma200=row.get("200MA"),
+            prev_day_high=row.get("Prev-Day High"), prev_day_low=row.get("Prev-Day Low"),
+            prior_52w_high=row.get("_prior_52w_high"), prior_52w_low=row.get("_prior_52w_low"),
+        ))
+    except Exception as e:
+        log.debug("%s: key levels failed (%s)", ticker, e)
+        row.update(KEY_LEVEL_DEFAULTS)
 
     # ── 6. ENTRY GATE ────────────────────────────────────────────────────────
     failed = []

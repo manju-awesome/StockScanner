@@ -135,7 +135,7 @@ def _initialize_day_session() -> None:
     2. Merges with DAY_TRADE_TICKERS
     3. Stores result in _dynamic_day_trade for all 30-min scans to reuse
     """
-    global  _hot_tickers, _hot_tickers_updated_at, DAY_TRADE_TICKERS
+    global _hot_tickers, _hot_tickers_updated_at, DAY_TRADE_TICKERS, _dynamic_day_trade
 
 
     _log("🔔 Market open — initializing day session universe…")
@@ -154,6 +154,30 @@ def _initialize_day_session() -> None:
     # Step 3: store once — all 30-min jobs read this
     _dynamic_day_trade = merged
     DAY_TRADE_TICKERS = merged
+
+    # Surface the day's universe on the Alerts page (MEDIUM = feed only, no
+    # email; dated dedup key = fires once per trading day, and yesterday's
+    # entry expires from the feed via the LOW/standing-alert lifecycle when
+    # the key stops being checked)
+    try:
+        from stockanalysis.core import alerts as alerts_mod
+        today = _now_et().strftime("%Y-%m-%d")
+        shown = ", ".join(merged[:15]) + ("…" if len(merged) > 15 else "")
+        a = alerts_mod.make_alert(
+            dedup_key=f"day_session:init_{today}", category="day_session",
+            priority="MEDIUM",
+            headline=(f"day-trade universe set: {len(merged)} tickers "
+                      f"({len(hot)} hot mover(s) merged)"),
+            why_it_matters=f"Today's intraday scans run on: {shown}",
+            expected_impact="Hot movers join the static day-trade list for every "
+                            "intraday scan until the next session init.",
+            suggested_action="Expand the daytrade category on the Scanner page to "
+                             "review or edit the merged list.",
+            confidence=100, time_sensitivity="today",
+            supporting_data={"hot_movers": hot, "merged_universe": merged})
+        alerts_mod.raise_alerts([a], {f"day_session:init_{today}"})
+    except Exception as e:
+        _log(f"   day-session alert failed: {e}")
 
     # Persist for the dashboard's Day Session Universe panel — dashboards are
     # often generated in another process (webapp/CLI), so module state alone
@@ -253,67 +277,6 @@ def score_to_grade(score: float, section: str) -> str:
 
 
 # ── Market condition helpers ──────────────────────────────────────────────────
-
-def _start_scheduler() -> None:
-
-    def job_swing_premarket():  run("daytrade",tickers=WATCHLIST_TICKERS)
-    def job_calls_premarket():  run("daytrade",tickers=DAY_TRADE_TICKERS)
-
-    def job_daytrade_open():    run("daytrade",tickers=DAY_TRADE_TICKERS)
-    def job_daytrade_1000():    run("daytrade",tickers=DAY_TRADE_TICKERS)
-    def job_daytrade_1030():    run("daytrade",tickers=DAY_TRADE_TICKERS)
-    def job_puts_midday():      run("daytrade",tickers=DAY_TRADE_TICKERS)
-    def job_full_close():       run("full", tickers=FULL_TICKERS)
-
-    # ── Pre-market movers (8:00 AM) ───────────────────────────────
-    # ── 9:30 AM — initialize once, locks universe for the day ────
-    schedule.every().day.at("09:30").do(_initialize_day_session)
-
-    # ── Every 30 min — reuses _dynamic_day_trade set at 9:30 ─────
-    for hhmm in ["10:00", "10:30", "11:00", "11:30",
-                 "12:00", "12:30", "13:00", "13:30",
-                 "14:00", "14:30", "15:00", "15:30"]:
-        schedule.every().day.at(hhmm).do(_run_hot_scan)
-    # ── VIX adaptive put scans ────────────────────────────────────
-    def _maybe_add_vix_scans():
-        if vix_is_elevated():
-            _log("⚡ VIX elevated — adding extra put scans on hot tickers")
-            for hhmm in ["11:15", "11:45", "12:15", "12:45", "13:15", "13:45"]:
-                schedule.every().day.at(hhmm).do(
-                    lambda: run("puts", tickers=_get_hot_tickers())
-                )
-    schedule.every().day.at("10:00").do(_maybe_add_vix_scans)
-
-    # ── After close full scan ─────────────────────────────────────
-    schedule.every().day.at("16:30").do(job_full_close)
-
-    # ── Friday extended scan ──────────────────────────────────────
-    def _friday_scan():
-        if _now_et().weekday() == 4:
-            _log("📅 Friday post-close — generating weekend watchlist")
-            try:
-                rows = run_scan(FULL_TICKERS)
-                if rows:
-                    generate_dashboard(rows, output_dir=REPORTS_DIR, open_browser=True)
-                    _append_history(rows, "full", str(REPORTS_DIR))
-            except Exception as e:
-                _log(f"Friday scan failed: {e}")
-    schedule.every().day.at("16:45").do(_friday_scan)
-
-    _log("✅ Scheduler started. Jobs registered:")
-    for job in schedule.jobs:
-        _log(f"   {job.next_run.strftime('%H:%M ET')}  →  {job.job_func.__name__}")
-
-    _log("⏳ Waiting for next job… (Ctrl+C to quit)\n")
-
-    while True:
-        if _now_et().weekday() >= 5:
-            time.sleep(60)
-            continue
-        schedule.run_pending()
-        time.sleep(30)
-
-
 
 def get_vix() -> float:
     """Fetch current VIX level. Returns 20.0 as fallback on error."""
@@ -622,7 +585,21 @@ def run(mode: str, tickers: list[str] | None = None, force: bool = False) -> Non
 
     # ── Dashboard ─────────────────────────────────────────────────
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    dashboard_path = generate_dashboard(rows, output_dir=REPORTS_DIR, open_browser=True)
+    dashboard_path = generate_dashboard(rows, output_dir=REPORTS_DIR, open_browser=True,
+                                        report_name=f"{mode}Report")
+
+    # ── Research Library ──────────────────────────────────────────
+    # Keep the library in lockstep with every scheduled scan (day-trade,
+    # swing, puts, calls, full) — same rationale as the webapp's scan job:
+    # without this, library scores go stale until the watchlist monitor
+    # happens to re-touch a ticker. charts/news skipped (redundant fetches).
+    try:
+        from stockanalysis.reporting.research import generate_research_pages
+        written = generate_research_pages(rows, REPORTS_DIR,
+                                          charts=False, fetch_news=False)
+        _log(f"   Research library refreshed for {len(written)} ticker(s)")
+    except Exception as e:
+        _log(f"   Research library refresh failed: {e}")
 
     # ── Grade + filter for alerts ─────────────────────────────────
     condition = _alert_conditions(mode)
@@ -686,102 +663,224 @@ def run(mode: str, tickers: list[str] | None = None, force: bool = False) -> Non
 
 
 # ── Scheduled jobs ────────────────────────────────────────────────────────────
+# Module-level named functions (not closures) so the Automation page can
+# identify each registered job by function name, "Run now" it, and re-register
+# it after a schedule edit (schedule_config.py holds the editable cadence).
 
 def _put_scan_job():
     """Put scan — runs more frequently when VIX is elevated."""
     run("puts")
 
 
+def job_swing_premarket():
+    run("swing")
+
+
+def job_calls_premarket():
+    run("calls")
+
+
+def job_daytrade_scan():
+    run("daytrade")
+
+
+def job_puts_midday():
+    run("puts")
+
+
+def job_full_close():
+    run("full", tickers=FULL_TICKERS)
+
+
+def job_day_session_init():
+    """Market open: lock the day's scan universe (live movers + base list)."""
+    _initialize_day_session()
+
+
+# Pre-Market Brief — one composed email; macro/movers/earnings/breakout
+# context already fetched elsewhere, see core/premarket_brief.py for why
+# this isn't a fresh data source.
+def job_premarket_brief():
+    if datetime.now(ET).weekday() >= 5:
+        return
+    from stockanalysis.core.premarket_brief import send_premarket_brief
+    try:
+        send_premarket_brief()
+        _log("📰 Pre-market brief sent")
+    except Exception as e:
+        _log(f"Pre-market brief failed: {e}")
+
+
+# Watchlist Alert Monitor — market-hours guard is inside the job (an
+# interval trigger fires around the clock). News scanning rides along on
+# the same cadence — it's a cheap per-ticker headline fetch, not worth a
+# second market-hours-guarded loop.
+def job_watchlist_alerts():
+    now = datetime.now(ET)
+    if now.weekday() >= 5 or not ((9, 30) <= (now.hour, now.minute) <= (16, 0)):
+        return
+    from stockanalysis.core.watchlist_alerts import scan_rows_for_alerts, default_alert_tickers
+    from stockanalysis.reporting.research import generate_research_pages
+    from stockanalysis.scanners import scan_universe as su
+    tickers = default_alert_tickers()
+    if not tickers:
+        return
+    try:
+        rows = su.main(tickers)
+    except Exception as e:
+        _log(f"Watchlist alert scan failed: {e}")
+        return
+    new_alerts = scan_rows_for_alerts(rows)
+    if new_alerts:
+        _log(f"🔔 {len(new_alerts)} new watchlist alert(s): "
+            + ", ".join(a["dedup_key"] for a in new_alerts))
+    # Keeps the Research Library's columns current from the same rows
+    # already fetched for the alert scan — see job_watchlist_scan in
+    # webapp/api.py (the on-demand button) for the full rationale.
+    try:
+        generate_research_pages(rows, REPORTS_DIR, charts=False, fetch_news=False)
+    except Exception as e:
+        _log(f"Research library refresh failed: {e}")
+
+
+def job_news_alerts():
+    """Breaking-news headline scan — split out of job_watchlist_alerts so the
+    Automation page can schedule it independently (it's also the Alerts
+    page's "Scan News Now" button). Same weekday/market-hours guard."""
+    now = datetime.now(ET)
+    if now.weekday() >= 5 or not ((9, 30) <= (now.hour, now.minute) <= (16, 0)):
+        return
+    from stockanalysis.core.news_monitor import scan_news_for_alerts
+    from stockanalysis.core.watchlist_alerts import default_alert_tickers
+    tickers = default_alert_tickers()
+    if not tickers:
+        return
+    try:
+        new_news = scan_news_for_alerts(tickers)
+        if new_news:
+            _log(f"📰 {len(new_news)} new breaking-news alert(s): "
+                + ", ".join(a["dedup_key"] for a in new_news))
+    except Exception as e:
+        _log(f"News monitor scan failed: {e}")
+
+
+# Earnings Alert Monitor — runs before the market-hours window (and before
+# the pre-market brief) since earnings releases happen before the open or
+# after the close, not during 9:30-16:00 — the watchlist scan's guard would
+# miss them.
+def job_earnings_alerts():
+    if datetime.now(ET).weekday() >= 5:
+        return
+    from stockanalysis.core.earnings_alerts import scan_earnings_for_alerts
+    from stockanalysis.core.watchlist_alerts import default_alert_tickers
+    tickers = default_alert_tickers()
+    if not tickers:
+        return
+    try:
+        new_alerts = scan_earnings_for_alerts(tickers)
+        if new_alerts:
+            _log(f"📅 {len(new_alerts)} new earnings alert(s): "
+                + ", ".join(a["dedup_key"] for a in new_alerts))
+    except Exception as e:
+        _log(f"Earnings alert scan failed: {e}")
+
+
+# Friday after-close extended scan — generates weekend watchlist; opens
+# browser for review. Friday guard inside so the trigger time is editable
+# without losing the Friday-only behavior.
+def job_friday_scan():
+    if datetime.now(ET).weekday() != 4:  # 4 = Friday
+        return
+    _log("📅 Friday post-close scan — generating weekend watchlist")
+    try:
+        rows = run_scan(FULL_TICKERS)
+    except Exception as e:
+        _log(f"Friday scan failed: {e}")
+        return
+    if rows:
+        generate_dashboard(rows, output_dir=REPORTS_DIR, open_browser=True,
+                           report_name="fullReport")
+        _append_history(rows, "full", str(REPORTS_DIR))
+
+
+# VIX adaptive — register 30-min put scans for the afternoon if VIX is
+# elevated when this fires. The extra jobs it adds are wiped (and re-added
+# next trigger if still elevated) whenever the schedule is re-registered.
+def job_vix_adaptive_puts():
+    if vix_is_elevated():
+        _log("⚡ VIX elevated — adding 30-min put scan loop (11 AM – 2 PM ET)")
+        for hhmm in ["11:00", "11:30", "12:30", "13:00", "13:30", "14:00"]:
+            schedule.every().day.at(hhmm).do(_put_scan_job)
+
+
+# Nightly output cleanup — same pruning as `--cleanup N`; CLEANUP_DAYS=0 in
+# the environment disables it (guard inside so the job stays listed/editable).
+def job_nightly_cleanup():
+    if CLEANUP_DAYS > 0:
+        cleanup_outputs(CLEANUP_DAYS)
+
+
+# schedule_config.JOB_DEFS key -> function. Keys/labels/default cadences
+# live in schedule_config.py; this maps them to the code to run.
+SCHEDULED_JOBS: dict[str, callable] = {
+    "earnings_alerts":   job_earnings_alerts,
+    "premarket_brief":   job_premarket_brief,
+    "watchlist_alerts":  job_watchlist_alerts,
+    "news_alerts":       job_news_alerts,
+    "swing_premarket":   job_swing_premarket,
+    "calls_premarket":   job_calls_premarket,
+    "day_session_init":  job_day_session_init,
+    "daytrade_scans":    job_daytrade_scan,
+    "puts_midday":       job_puts_midday,
+    "vix_adaptive_puts": job_vix_adaptive_puts,
+    "full_close":        job_full_close,
+    "friday_scan":       job_friday_scan,
+    "nightly_cleanup":   job_nightly_cleanup,
+}
+
+
+def register_jobs() -> None:
+    """Register every enabled job from data/schedule_config.json (defaults
+    from schedule_config.JOB_DEFS when unedited). day_session_init is
+    registered before daytrade_scans by dict order, so a shared 09:30 slot
+    initializes the universe before the scan that uses it."""
+    from stockanalysis.scheduling.schedule_config import load_config, describe_spec
+    cfg = load_config()
+    for key, fn in SCHEDULED_JOBS.items():
+        spec = cfg[key]
+        if not spec["enabled"]:
+            _log(f"   (disabled) {key}")
+            continue
+        if spec["type"] == "interval":
+            schedule.every(spec["minutes"]).minutes.do(fn)
+        else:
+            for hhmm in spec["times"]:
+                schedule.every().day.at(hhmm).do(fn)
+        _log(f"   {key} — {describe_spec(spec)}")
+
+
+def reschedule() -> None:
+    """Re-register everything from the (just-edited) config. Called by the
+    webapp after a schedule save so edits apply live, no restart. Also drops
+    any VIX-adaptive extras; job_vix_adaptive_puts re-adds them on its next
+    trigger if VIX is still elevated."""
+    schedule.clear()
+    _log("🔄 Schedule edited — re-registering jobs:")
+    register_jobs()
+
+
 def _start_scheduler() -> None:
     """
-    Register all scheduled jobs and start the blocking loop.
-
-    All times are Eastern Time (ET).
-    Runs Mon–Fri only (weekend guard inside the loop).
+    Register all scheduled jobs from config and start the blocking loop.
+    All times are Eastern Time (ET); jobs carry their own weekday/market-
+    hours guards.
     """
-
-
-    def job_swing_premarket():
-        run("swing")
-
-    def job_calls_premarket():
-        run("calls")
-
-    def job_daytrade_open():
-        run("daytrade")
-
-    def job_daytrade_1000():
-        run("daytrade")
-
-    def job_daytrade_1030():
-        run("daytrade")
-
-    def job_puts_midday():
-        run("puts")
-
-    def job_full_close():
-        run("full", tickers=FULL_TICKERS)
-
-    schedule.every().day.at("08:00").do(job_swing_premarket)
-    schedule.every().day.at("08:05").do(job_calls_premarket)
-    schedule.every().day.at("09:30").do(job_daytrade_open)
-    schedule.every().day.at("10:00").do(job_daytrade_1000)
-    schedule.every().day.at("10:30").do(job_daytrade_1030)
-    schedule.every().day.at("12:00").do(job_puts_midday)
-    schedule.every().day.at("16:30").do(job_full_close)
-
-
-
-
-
-    # ── Friday after-close extended scan (4:45 PM ET) ────────────
-    # Generates weekend watchlist; opens browser for review
-    def _friday_scan():
-        if datetime.now(ET).weekday() == 4:  # 4 = Friday
-            _log("📅 Friday post-close scan — generating weekend watchlist")
-            rows = None
-            try:
-                rows = run_scan(FULL_TICKERS)
-            except Exception as e:
-                _log(f"Friday scan failed: {e}")
-                return
-            if rows:
-                generate_dashboard(rows, output_dir=REPORTS_DIR, open_browser=True)
-                _append_history(rows, "full", str(REPORTS_DIR))
-
-    schedule.every().day.at("16:45").do(_friday_scan)
-
-    # ── VIX adaptive — register 30-min put scans if VIX elevated at 10 AM ──
-    def _maybe_add_vix_scans():
-        if vix_is_elevated():
-            _log("⚡ VIX elevated — adding 30-min put scan loop (11 AM – 2 PM ET)")
-            for hhmm in ["11:00", "11:30", "12:30", "13:00", "13:30", "14:00"]:
-                schedule.every().day.at(hhmm).do(_put_scan_job)
-
-    schedule.every().day.at("10:00").do(_maybe_add_vix_scans)
-
-    # ── Nightly output cleanup (23:30 ET) ────────────────────────
-    # Same pruning as `--cleanup N`, run automatically after the day's
-    # scans; CLEANUP_DAYS=0 in the environment disables it
-    if CLEANUP_DAYS > 0:
-        def job_nightly_cleanup():
-            cleanup_outputs(CLEANUP_DAYS)
-
-        schedule.every().day.at("23:30").do(job_nightly_cleanup)
-        _log(f"🧹 Nightly cleanup registered (23:30 ET, keep {CLEANUP_DAYS}d "
-             f"of outputs; set CLEANUP_DAYS=0 to disable)")
-
     _log("✅ Scheduler started. Jobs registered:")
-    for job in schedule.jobs:
-        _log(f"   {job}")
+    register_jobs()
 
     _log("⏳ Waiting for next scheduled job... (Ctrl+C to quit)\n")
 
     while True:
-        # Skip weekends
-        if datetime.now(ET).weekday() >= 5:   # 5=Sat, 6=Sun
-            time.sleep(60)
-            continue
         schedule.run_pending()
         time.sleep(30)   # check every 30 seconds
 
@@ -806,7 +905,7 @@ def _start_scheduler_test() -> None:
 
     _log("✅ Test complete — check:")
     _log(f"   Email inbox  → {EMAIL_TO}")
-    _log(f"   Dashboard    → {REPORTS_DIR / 'dashboard_*.html'}")
+    _log(f"   Dashboard    → {REPORTS_DIR / '<universe>Report_*.html'}")
     _log(f"   History CSV  → {HISTORY_CSV}")
 
 
@@ -815,8 +914,10 @@ def _start_scheduler_test() -> None:
 # ── Output cleanup ────────────────────────────────────────────────────────────
 
 # Only generated artifacts are eligible for cleanup — never user state
-# (portfolio.csv), never the rolling history/tracker CSVs
-CLEANUP_PATTERNS = ("stock_scan_*.csv", "dashboard_*.html",
+# (portfolio.csv), never the rolling history/tracker CSVs.
+# Dashboards are named "<universe>Report_<ts>.html" (e.g. sp500Report_...);
+# "dashboard_*.html" is still matched for files written before that rename.
+CLEANUP_PATTERNS = ("stock_scan_*.csv", "*Report_*.html", "dashboard_*.html",
                     "metrics_*.csv", "research/*.html")
 
 

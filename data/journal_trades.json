@@ -1,0 +1,91 @@
+[
+  {
+    "id": "1e555a85c353",
+    "created_at": "2026-07-18T05:52:31",
+    "ticker": "AMD",
+    "direction": "Long",
+    "date": "2026-07-17",
+    "time": "14:30",
+    "market": "options",
+    "sector": "",
+    "trade_plan": {
+      "why": "AMD was trading below 500, since ATR of AMD is high , relative movement can fetch results",
+      "setup_name": "EMA pullback",
+      "setup_grade": "A",
+      "higher_tf_trend": "",
+      "lower_tf_trigger": "",
+      "entry": 495.0,
+      "stop": null,
+      "target1": null,
+      "target2": null,
+      "risk_pct": -1.0,
+      "expected_reward": null,
+      "max_loss_accepted": null,
+      "max_gain_expected": null,
+      "risk_reward": null
+    },
+    "market_context": {
+      "earnings_considered": true,
+      "fed_considered": true,
+      "vix_considered": true,
+      "yields_considered": true,
+      "news_considered": false,
+      "notes": ""
+    },
+    "execution": {
+      "actual_entry": null,
+      "actual_exit": null,
+      "partial_exits": "",
+      "position_size": "",
+      "scaling": "",
+      "duration_minutes": null,
+      "mfe": null,
+      "mae": null,
+      "deviated_from_plan": false,
+      "hesitation": false,
+      "late_entry": false,
+      "early_exit": false,
+      "fomo": false,
+      "revenge_trade": false,
+      "overtrading": false
+    },
+    "psychology": {
+      "before": "",
+      "during": "",
+      "after": "",
+      "stress": null,
+      "confidence": null,
+      "discipline": null,
+      "patience": null,
+      "focus": null,
+      "fear": "",
+      "greed": "",
+      "hope": "",
+      "regret": "",
+      "fomo_note": ""
+    },
+    "rule_checklist": {
+      "rules_broken": "",
+      "impulsive": false,
+      "stop_moved": false,
+      "target_changed": false,
+      "averaged_down": false,
+      "emotional": true
+    },
+    "post_trade_review": {
+      "what_worked": "",
+      "what_failed": "",
+      "repeat": "",
+      "never_again": ""
+    },
+    "ai_feedback": null,
+    "trade_result": {
+      "pnl_per_share": null,
+      "r_multiple": null,
+      "return_pct": null,
+      "duration_minutes": null,
+      "mfe": null,
+      "mae": null
+    }
+  }
+]

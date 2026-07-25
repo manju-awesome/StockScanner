@@ -1,4 +1,197 @@
-Ticker,Shares,Avg_Cost,Entry_Date,Strategy,Stop,Target,Notes
-NVDA,25,145.50,2026-05-12,longterm,,260,example: core AI position
-ARM,40,290.00,2026-07-08,swing,285.00,340,example: pullback add
-HOOD,0,,,watch,,,example: watchlist-only row (0 shares)
+Ticker,Shares,Avg_Cost,Entry_Date,Strategy,Stop,Target,Notes,Target_Weight,Theme
+FLY,140.0,40.0,,swing,285.0,,example: pullback add,,
+POET,200.0,14.0,,swing,,,example: watchlist-only row (0 shares),,
+NVDA,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Compute / Semiconductors
+AMD,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Compute / Semiconductors
+AVGO,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Compute / Semiconductors
+ASML,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Compute / Semiconductors
+TSM,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Compute / Semiconductors
+MSFT,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Platform / Mega Cap Tech
+GOOGL,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Platform / Mega Cap Tech
+META,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Platform / Mega Cap Tech
+AMZN,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Platform / Mega Cap Tech
+NOW,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,Enterprise AI Software
+ORCL,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,Enterprise AI Software
+PLTR,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,Enterprise AI Software
+PANW,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,Cybersecurity
+CRWD,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,Cybersecurity
+MU,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Memory / Storage
+WDC,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Memory / Storage
+GLW,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Networking / Photonics
+COHR,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Networking / Photonics
+CRDO,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Networking / Photonics
+ETN,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Data Center / Power Infrastructure
+PWR,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Data Center / Power Infrastructure
+GEV,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Data Center / Power Infrastructure
+VRT,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Data Center / Power Infrastructure
+VST,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Data Center / Power Infrastructure
+CEG,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Data Center / Power Infrastructure
+NEE,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI Data Center / Power Infrastructure
+LMT,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,Defense / Strategic Technology
+RTX,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,Defense / Strategic Technology
+NOC,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,Defense / Strategic Technology
+GD,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,Defense / Strategic Technology
+GE,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,Defense / Strategic Technology
+LLY,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,Healthcare Growth / Stability
+NVO,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,Healthcare Growth / Stability
+UNH,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,Healthcare Growth / Stability
+ISRG,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,Healthcare Growth / Stability
+TMO,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,Healthcare Growth / Stability
+ABBV,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,Healthcare Growth / Stability
+V,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,Financial Platforms
+MA,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,Financial Platforms
+HOOD,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,Financial Platforms
+SMH,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI ETFs
+GRID,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI ETFs
+CIBR,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI ETFs
+IGV,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI ETFs
+QQQ,,,,watch,,,longterm AI portfolio — equal-weight watchlist candidate,2.17%,AI ETFs
+OKLO,100.0,76.0,,longterm,,,example: core AI position,,
+
+
+
+{
+  "Semiconductors & AI Hardware": [
+    "NVDA",
+    "AMD",
+    "AVGO",
+    "TSM",
+    "ASML",
+    "ARM",
+    "QCOM",
+    "MRVL",
+    "TXN",
+    "INTC",
+    "MU",
+    "WDC",
+    "STX",
+    "SMCI",
+    "DELL",
+    "COHR",
+    "LITE",
+    "AAOI",
+    "CIEN",
+    "APH",
+    "CRDO",
+    "GLW",
+    "DRAM"
+  ],
+
+  "Software & Cloud": [
+    "MSFT",
+    "ORCL",
+    "ADBE",
+    "NOW",
+    "SNOW",
+    "MDB",
+    "WDAY",
+    "IBM"
+  ],
+
+  "Cybersecurity": [
+    "PANW",
+    "CRWD",
+    "FTNT",
+    "ZS",
+    "OKTA",
+    "S"
+  ],
+
+  "Internet & Digital Platforms": [
+    "GOOGL",
+    "META",
+    "AMZN",
+    "NFLX"
+  ],
+
+  "AI & Data Infrastructure": [
+    "PLTR",
+    "INOD",
+    "NBIS",
+    "CRWV"
+  ],
+
+  "Quantum Computing": [
+    "IONQ",
+    "QBTS",
+    "RGTI"
+  ],
+
+  "Energy, Utilities & Power Grid": [
+    "VRT",
+    "VST",
+    "CEG",
+    "NEE",
+    "GEV",
+    "PWR",
+    "ETN",
+    "BE"
+  ],
+
+  "Aerospace & Defense": [
+    "LMT",
+    "RTX",
+    "NOC",
+    "GD",
+    "KTOS",
+    "RKLB",
+    "GE"
+  ],
+
+  "Electric Vehicles & Auto": [
+    "TSLA"
+  ],
+
+  "Financials & FinTech": [
+    "V",
+    "MA",
+    "PYPL",
+    "SOFI",
+    "HOOD",
+    "COIN"
+  ],
+
+  "Healthcare": [
+    "UNH",
+    "HIMS"
+  ],
+
+  "Materials & Critical Minerals": [
+    "MP",
+    "USAR"
+  ],
+
+  "Bitcoin Mining": [
+    "IREN"
+  ],
+
+  "Semiconductor ETF": [
+    "SMH"
+  ],
+
+  "Cybersecurity ETF": [
+    "CIBR"
+  ],
+
+  "Technology ETF": [
+    "IGV",
+    "QQQ"
+  ],
+
+  "Infrastructure & Grid ETF": [
+    "GRID"
+  ],
+
+  "Small Cap ETF": [
+    "IWM"
+  ],
+
+  "Defense ETF": [
+    "ITA"
+  ],
+
+  "Precious Metals ETF": [
+    "GLD",
+    "SLV"
+  ]
+}

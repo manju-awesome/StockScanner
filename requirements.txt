@@ -1,6 +1,9 @@
 pandas
 yfinance
+lxml
 pytz
 schedule
 resend
 python-dotenv
+pytest
+anthropic

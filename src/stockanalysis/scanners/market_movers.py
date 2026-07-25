@@ -45,6 +45,7 @@ import urllib.request
 import urllib.error
 from collections import Counter
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import yfinance as yf
@@ -62,6 +63,9 @@ ET = ZoneInfo("America/New_York")
 RESEND_API_KEY    = os.environ.get("RESEND_API_KEY", "")
 EMAIL_TO          = os.environ.get("ALERT_EMAIL_TO",   "you@example.com")
 RESEND_FROM_EMAIL = os.environ.get("ALERT_EMAIL_FROM", "alerts@yourdomain.com")
+
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 try:
     import resend as resend_sdk
@@ -81,6 +85,12 @@ VIX_TICKER = "^VIX"
 
 # ForexFactory public "this week" feed — no auth required
 ECON_CALENDAR_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+# The ForexFactory feed rate-limits hard (HTTP 429) and the calendar only
+# changes a few times a day, so responses are cached — in memory and on disk
+# (survives restarts) — and refetched at most once per TTL. On a failed
+# refresh the last good copy is served instead of an error.
+ECON_CACHE_PATH = Path(__file__).resolve().parents[3] / "data" / "econ_calendar_cache.json"
+ECON_CACHE_TTL_SECONDS = 3600
 ECON_COUNTRIES = {"USD"}             # currency codes to keep
 ECON_IMPACTS   = {"High", "Medium"}  # impact levels to keep
 
@@ -173,6 +183,16 @@ CATALYST_PATTERNS: list[tuple[str, str]] = [
      "Guidance Raised"),
     (r"\bguidance (cut|lower\w*|reduc\w*)\b|\blowered? (outlook|guidance|forecast)\b",
      "Guidance Cut"),
+    # Credit rating actions — must be checked before the generic Analyst
+    # Downgrade pattern below, since "Moody's downgrades..." would otherwise
+    # match \bdowngrad\w+\b first (first-match-wins in _classify_headline).
+    # Unordered lookaheads (agency + "rating" + a downgrade/cut verb all
+    # present, any order) so both "Moody's downgrades ... rating" and
+    # "S&P cuts credit rating" match — and "S&P 500 cuts losses" doesn't
+    # (no "rating" anywhere), avoiding the S&P-the-agency vs S&P-the-index
+    # ambiguity.
+    (r"(?=.*\b(?:Moody'?s|S&P|Fitch)\b)(?=.*\brating\b)(?=.*\b(?:downgrad\w*|cuts?|lower\w*)\b)",
+     "Credit Downgrade"),
     # Analyst actions
     (r"\bupgrad\w+\b|\bprice target (rais\w+|increas\w+|hik\w+)\b|\bbuy rating\b|\boutperform\b",
      "Analyst Upgrade"),
@@ -187,11 +207,12 @@ CATALYST_PATTERNS: list[tuple[str, str]] = [
      "Divestiture"),
     (r"\bshare buyback\b|\brepurchase program\b|\bdividend (increas\w+|rais\w+|hik\w+)\b",
      "Capital Return"),
-    # Product / Business
-    (r"\bproduct launch\b|\bnew (product|model|chip|drug|platform|service)\b|\blaunch\w* (new|of)\b",
-     "Product Launch"),
+    # Product / Business — FDA Approval checked first: "FDA approves new
+    # drug" would otherwise match Product Launch's "new drug" first
     (r"\bFDA (approv\w+|clear\w+|grant\w+)\b|\b510[Kk]\b|\bBLA\b|\bNDA\b|\bsNDA\b",
      "FDA Approval"),
+    (r"\bproduct launch\b|\bnew (product|model|chip|drug|platform|service)\b|\blaunch\w* (new|of)\b",
+     "Product Launch"),
     (r"\bcontract win\b|\bnew (deal|contract|order)\b|\bpartnership\b|\bjoint venture\b|\bMOU\b",
      "New Deal / Contract"),
     # Macro / Economic
@@ -210,6 +231,10 @@ CATALYST_PATTERNS: list[tuple[str, str]] = [
      "Restructuring"),
     (r"\bfraud\b|\bSEC invest\w+\b|\bclass action\b|\bsubpoena\b|\blawsuit\b|\blitigation\b",
      "Legal / Regulatory"),
+    (r"\bCEO\b.{0,40}\b(resign\w*|depart\w*|steps? down|ousted|fired|to leave)\b|"
+     r"\b(resign\w*|steps? down|ousted)\b.{0,40}\bCEO\b|"
+     r"\bchief executive\b.{0,40}\b(resign\w*|depart\w*|to step down)\b|\bC-suite exit\b",
+     "Executive Departure"),
 ]
 
 
@@ -276,12 +301,49 @@ def fetch_vix() -> dict:
                 "label": None, "error": str(e)}
 
 
+_econ_cache: dict | None = None      # {"fetched_at": epoch float, "events": [json-safe]}
+
+
+def _econ_cache_load() -> dict | None:
+    """In-memory cache first, then the on-disk copy; None if neither exists."""
+    global _econ_cache
+    if _econ_cache is None:
+        try:
+            _econ_cache = json.loads(ECON_CACHE_PATH.read_text())
+        except Exception:
+            return None
+    return _econ_cache
+
+
+def _econ_cache_store(events: list[dict]) -> None:
+    global _econ_cache
+    _econ_cache = {
+        "fetched_at": time.time(),
+        "events": [{**e, "when": e["when"].isoformat()} for e in events],
+    }
+    try:
+        ECON_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        ECON_CACHE_PATH.write_text(json.dumps(_econ_cache))
+    except Exception as e:
+        log.warning("Could not persist economic calendar cache: %s", e)
+
+
+def _econ_cache_events(cache: dict) -> list[dict]:
+    return [{**e, "when": datetime.fromisoformat(e["when"])} for e in cache["events"]]
+
+
 def fetch_economic_events() -> dict:
     """
-    Fetch this week's economic calendar (ForexFactory feed), filtered to
-    ECON_COUNTRIES / ECON_IMPACTS, sorted by time (ET).
+    This week's economic calendar (ForexFactory feed), filtered to
+    ECON_COUNTRIES / ECON_IMPACTS, sorted by time (ET). Served from cache
+    while fresh (ECON_CACHE_TTL_SECONDS); on a failed refresh the last good
+    copy is returned regardless of age.
     Returns {"events": [...], "error": None|str} — never raises.
     """
+    cache = _econ_cache_load()
+    if cache and time.time() - cache.get("fetched_at", 0) < ECON_CACHE_TTL_SECONDS:
+        return {"events": _econ_cache_events(cache), "error": None}
+
     try:
         req = urllib.request.Request(
             ECON_CALENDAR_URL,
@@ -309,9 +371,14 @@ def fetch_economic_events() -> dict:
             })
 
         events.sort(key=lambda e: e["when"])
+        _econ_cache_store(events)
         return {"events": events, "error": None}
     except Exception as e:
         log.warning("Economic calendar fetch failed: %s", e)
+        if cache:
+            age_min = (time.time() - cache.get("fetched_at", 0)) / 60
+            log.warning("Serving cached economic calendar (%.0f min old) instead", age_min)
+            return {"events": _econ_cache_events(cache), "error": None}
         return {"events": [], "error": str(e)}
 
 
@@ -400,6 +467,10 @@ QQQ_MEGACAPS = {"NVDA", "MSFT", "AAPL", "AMZN", "GOOGL", "META", "AVGO", "TSLA"}
 # Index futures — trade nearly 24h, so they give live direction pre-market
 # and overnight when SPY/QQQ quotes are stale
 FUTURES = [("ES=F", "S&P fut"), ("NQ=F", "Nasdaq fut")]
+
+# Cross-asset context for the Pre-Market Brief — gold/oil/bitcoin trade
+# nearly 24h same as futures, so they're meaningful before the open too
+MACRO_EXTRAS = [("GC=F", "Gold"), ("CL=F", "Oil (WTI)"), ("BTC-USD", "Bitcoin")]
 
 # Sector ETFs for the rotation chips row
 SECTOR_ETFS = [
@@ -555,9 +626,16 @@ def market_pulse(top_n: int = 10, with_catalysts: bool = True) -> dict:
             sectors.append(q)
     sectors.sort(key=lambda s: s["chg_pct"], reverse=True)
 
+    macro = []
+    for sym, label in MACRO_EXTRAS:
+        q = _quote_chg(sym)
+        if q:
+            q["label"] = label
+            macro.append(q)
+
     return {"vix": vix, "spy": spy, "qqq": qqq, "top10": top,
             "econ_events": upcoming, "fed": fetch_fed_rate_outlook(),
-            "futures": futures, "sectors": sectors}
+            "futures": futures, "sectors": sectors, "macro": macro}
 
 
 # ── Price fetch ───────────────────────────────────────────────────────────────
@@ -1099,11 +1177,105 @@ def _build_movers_html(rows: list[dict], context: dict | None = None) -> str:
 </html>"""
 
 
-def email_movers(rows: list[dict], context: dict | None = None) -> None:
-    """Send top movers report via Resend (SDK first, urllib HTTP fallback)."""
+def send_resend_email(subject: str, text_body: str, html_body: str,
+                      to: str | None = None) -> bool:
+    """Low-level Resend send (SDK first, urllib HTTP fallback) — the one
+    Resend integration in the app. email_movers() below and the alert
+    engine (core/alerts.py's premarket brief + watchlist alert emails) both
+    call this rather than each keeping their own copy of the SDK/HTTP
+    fallback dance. Returns True on a send that didn't raise/error."""
     if not RESEND_API_KEY:
-        log.error("Missing RESEND_API_KEY — skipping movers email")
-        return
+        log.error("Missing RESEND_API_KEY — skipping email %r", subject)
+        return False
+
+    recipient = to or EMAIL_TO
+    payload = {"from": RESEND_FROM_EMAIL, "to": [recipient],
+              "subject": subject, "text": text_body, "html": html_body}
+
+    if HAVE_RESEND_SDK:
+        try:
+            resend_sdk.api_key = RESEND_API_KEY
+            result = resend_sdk.Emails.send(payload)
+            _id = result.get("id") if isinstance(result, dict) else result
+            log.info("Email sent via SDK (id=%s) → %s: %s", _id, recipient, subject)
+            return True
+        except Exception as e:
+            log.warning("Resend SDK failed (%s) — trying HTTP fallback", e)
+
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type":  "application/json",
+            "Accept":        "application/json",
+            "User-Agent":    "stock-scanner/1.0",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            log.info("Email sent via HTTP (status %s) → %s: %s", resp.status, recipient, subject)
+            return True
+    except urllib.error.HTTPError as e:
+        log.error("Resend error %s: %s", e.code, e.read().decode("utf-8", errors="replace"))
+    except Exception as e:
+        log.error("Email send failed: %s", e)
+    return False
+
+
+TELEGRAM_MSG_LIMIT = 4096  # hard cap enforced by the Bot API
+
+
+def _chunk_for_telegram(text: str, limit: int = TELEGRAM_MSG_LIMIT) -> list[str]:
+    """Splits on line boundaries so a long digest doesn't get truncated
+    mid-alert by Telegram's per-message character cap."""
+    if len(text) <= limit:
+        return [text]
+    chunks, current, length = [], [], 0
+    for line in text.split("\n"):
+        if current and length + len(line) + 1 > limit:
+            chunks.append("\n".join(current))
+            current, length = [], 0
+        current.append(line)
+        length += len(line) + 1
+    if current:
+        chunks.append("\n".join(current))
+    return chunks
+
+
+def send_telegram_message(text: str) -> bool:
+    """Low-level Telegram send via the Bot API — the one Telegram
+    integration in the app. core/alerts.py's CRITICAL/HIGH digest calls
+    this alongside send_resend_email. Returns True only if every chunk
+    sends without error (a message over TELEGRAM_MSG_LIMIT is split first)."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        log.error("Missing TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID — skipping Telegram push")
+        return False
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    ok = True
+    for chunk in _chunk_for_telegram(text):
+        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": chunk,
+                  "parse_mode": "HTML", "disable_web_page_preview": True}
+        req = urllib.request.Request(
+            url, data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                log.info("Telegram message sent (status %s)", resp.status)
+        except urllib.error.HTTPError as e:
+            log.error("Telegram error %s: %s", e.code, e.read().decode("utf-8", errors="replace"))
+            ok = False
+        except Exception as e:
+            log.error("Telegram send failed: %s", e)
+            ok = False
+    return ok
+
+
+def email_movers(rows: list[dict], context: dict | None = None) -> None:
+    """Send top movers report via Resend."""
     if not rows:
         log.warning("No mover rows to email")
         return
@@ -1133,44 +1305,7 @@ def email_movers(rows: list[dict], context: dict | None = None) -> None:
     lines.append("Not financial advice.")
     text_body = "\n".join(lines)
 
-    payload = {
-        "from":    RESEND_FROM_EMAIL,
-        "to":      [EMAIL_TO],
-        "subject": subject,
-        "text":    text_body,
-        "html":    _build_movers_html(rows, context),
-    }
-
-    # ── Resend SDK ────────────────────────────────────────────────
-    if HAVE_RESEND_SDK:
-        try:
-            resend_sdk.api_key = RESEND_API_KEY
-            result = resend_sdk.Emails.send(payload)
-            _id = result.get("id") if isinstance(result, dict) else result
-            log.info("Movers email sent via SDK (id=%s) → %s", _id, EMAIL_TO)
-            return
-        except Exception as e:
-            log.warning("Resend SDK failed (%s) — trying HTTP fallback", e)
-
-    # ── urllib HTTP fallback ──────────────────────────────────────
-    req = urllib.request.Request(
-        "https://api.resend.com/emails",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {RESEND_API_KEY}",
-            "Content-Type":  "application/json",
-            "Accept":        "application/json",
-            "User-Agent":    "stock-scanner/1.0",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            log.info("Movers email sent via HTTP (status %s) → %s", resp.status, EMAIL_TO)
-    except urllib.error.HTTPError as e:
-        log.error("Resend error %s: %s", e.code, e.read().decode("utf-8", errors="replace"))
-    except Exception as e:
-        log.error("Email send failed: %s", e)
+    send_resend_email(subject, text_body, _build_movers_html(rows, context))
 
 
 # ── Scheduler integration hook ────────────────────────────────────────────────

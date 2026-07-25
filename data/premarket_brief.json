@@ -1,0 +1,600 @@
+{
+  "generated_at": "2026-07-24T08:01:48",
+  "vix": {
+    "level": 18.77,
+    "change": 0.07,
+    "change_pct": 0.37,
+    "label": "NORMAL",
+    "error": null
+  },
+  "futures": [
+    {
+      "ticker": "ES=F",
+      "price": 7455.25,
+      "chg_pct": 0.14,
+      "label": "S&P fut"
+    },
+    {
+      "ticker": "NQ=F",
+      "price": 28625.75,
+      "chg_pct": 0.02,
+      "label": "Nasdaq fut"
+    }
+  ],
+  "macro": [
+    {
+      "ticker": "GC=F",
+      "price": 4057.2,
+      "chg_pct": 0.26,
+      "label": "Gold"
+    },
+    {
+      "ticker": "CL=F",
+      "price": 89.3,
+      "chg_pct": -3.13,
+      "label": "Oil (WTI)"
+    },
+    {
+      "ticker": "BTC-USD",
+      "price": 64733.34,
+      "chg_pct": -0.48,
+      "label": "Bitcoin"
+    }
+  ],
+  "yield_10y": {
+    "level_pct": 4.679,
+    "change_bps": -2,
+    "error": null
+  },
+  "dollar_index": {
+    "level": 101.5,
+    "change_pct": 0.07,
+    "error": null
+  },
+  "fed": {
+    "current_implied": 3.632,
+    "months": [
+      {
+        "label": "Aug 2026",
+        "symbol": "ZQQ26.CBT",
+        "implied_rate": 3.71,
+        "change_bps": 8,
+        "moves": 0.3
+      },
+      {
+        "label": "Sep 2026",
+        "symbol": "ZQU26.CBT",
+        "implied_rate": 3.8,
+        "change_bps": 17,
+        "moves": 0.7
+      },
+      {
+        "label": "Oct 2026",
+        "symbol": "ZQV26.CBT",
+        "implied_rate": 3.9,
+        "change_bps": 27,
+        "moves": 1.1
+      },
+      {
+        "label": "Nov 2026",
+        "symbol": "ZQX26.CBT",
+        "implied_rate": 3.965,
+        "change_bps": 33,
+        "moves": 1.3
+      },
+      {
+        "label": "Dec 2026",
+        "symbol": "ZQZ26.CBT",
+        "implied_rate": 4.035,
+        "change_bps": 40,
+        "moves": 1.6
+      },
+      {
+        "label": "Jan 2027",
+        "symbol": "ZQF27.CBT",
+        "implied_rate": 4.065,
+        "change_bps": 43,
+        "moves": 1.7
+      }
+    ],
+    "asof": "2026-07-24",
+    "error": null
+  },
+  "econ_events": [],
+  "spy": {
+    "ticker": "SPY",
+    "price": 738.18,
+    "day_chg_pct": -1.23,
+    "ret_5d_pct": -1.67,
+    "above_20ma": false,
+    "above_50ma": false,
+    "market_cap": null,
+    "breadth_pct": 26.5,
+    "score": -6,
+    "strength": "WEAK"
+  },
+  "qqq": {
+    "ticker": "QQQ",
+    "price": 691.96,
+    "day_chg_pct": -1.9,
+    "ret_5d_pct": -1.98,
+    "above_20ma": false,
+    "above_50ma": false,
+    "market_cap": null,
+    "breadth_pct": 19.9,
+    "score": -6,
+    "strength": "WEAK"
+  },
+  "sectors_trending": [
+    {
+      "ticker": "XLI",
+      "price": 181.94,
+      "chg_pct": 1.73,
+      "label": "Industr"
+    },
+    {
+      "ticker": "XLV",
+      "price": 161.44,
+      "chg_pct": 1.26,
+      "label": "Health"
+    },
+    {
+      "ticker": "DRAM",
+      "price": 58.3,
+      "chg_pct": 0.92,
+      "label": "Memory"
+    }
+  ],
+  "sectors_lagging": [
+    {
+      "ticker": "XLY",
+      "price": 108.76,
+      "chg_pct": -4.61,
+      "label": "Discret"
+    },
+    {
+      "ticker": "XLC",
+      "price": 105.38,
+      "chg_pct": -3.5,
+      "label": "Comms"
+    },
+    {
+      "ticker": "IGV",
+      "price": 87.1,
+      "chg_pct": -2.16,
+      "label": "Software"
+    }
+  ],
+  "gainers": [
+    {
+      "rank": 1,
+      "ticker": "SLB",
+      "direction": "\u25b2",
+      "last_price": 48.75,
+      "prev_close": 47.32,
+      "chg_pct": 3.01,
+      "session_open": 47.4,
+      "session_high": 49.83,
+      "session_low": 46.93,
+      "session_vol": 0,
+      "catalyst": "New Deal / Contract",
+      "headline": "Earlier this month, SLB announced an alliance with Liberty Energy to deliver modular infrastructure and integrated behind-the-meter power solutions for AI-driven data centers, while its OneSubsea joint venture secured a major multi-well subsea EPC contract from Eni for Phase 3 of the Baleine project offshore C\u00f4te d\u2019Ivoire. This combination highlights SLB\u2019s push into energy-hungry data center infrastructure while reinforcing its role in complex offshore developments through integrated subsea...",
+      "mode": "premarket",
+      "scan_time": "2026-07-24 09:00:41 ET"
+    },
+    {
+      "rank": 10,
+      "ticker": "PYPL",
+      "direction": "\u25b2",
+      "last_price": 56.06,
+      "prev_close": 55.15,
+      "chg_pct": 1.65,
+      "session_open": 55.44,
+      "session_high": 56.32,
+      "session_low": 54.5,
+      "session_vol": 0,
+      "catalyst": "Analyst Upgrade",
+      "headline": "Markets took a brutal hit Thursday as oil prices, surging interest rates, and Middle East tensions sent every major index deep into the red. See which stocks analysts are upgrading, downgrading, and initiating fresh coverage on as Wall Street braces for more turbulence.",
+      "mode": "premarket",
+      "scan_time": "2026-07-24 09:00:46 ET"
+    }
+  ],
+  "losers": [
+    {
+      "rank": 2,
+      "ticker": "AMAT",
+      "direction": "\u25bc",
+      "last_price": 560.09,
+      "prev_close": 574.96,
+      "chg_pct": -2.59,
+      "session_open": 557.18,
+      "session_high": 566.75,
+      "session_low": 553.0,
+      "session_vol": 0,
+      "catalyst": "General News",
+      "headline": "This AI Stock Needs to Cool Off After Gaining More Than 200% Year to Date",
+      "mode": "premarket",
+      "scan_time": "2026-07-24 09:00:42 ET"
+    },
+    {
+      "rank": 3,
+      "ticker": "WDC",
+      "direction": "\u25bc",
+      "last_price": 546.62,
+      "prev_close": 560.63,
+      "chg_pct": -2.5,
+      "session_open": 547.14,
+      "session_high": 553.95,
+      "session_low": 538.23,
+      "session_vol": 0,
+      "catalyst": "General News",
+      "headline": "GSIT faces challenges from AI market competition, product development risks, SRAM dependence, supply chain constraints and rising costs that could impact its growth and commercialization efforts.",
+      "mode": "premarket",
+      "scan_time": "2026-07-24 09:00:42 ET"
+    },
+    {
+      "rank": 4,
+      "ticker": "STX",
+      "direction": "\u25bc",
+      "last_price": 896.6,
+      "prev_close": 918.01,
+      "chg_pct": -2.33,
+      "session_open": 909.69,
+      "session_high": 915.0,
+      "session_low": 889.0,
+      "session_vol": 0,
+      "catalyst": "General News",
+      "headline": "Apple stock is holding up the best out of the Magnificent Seven stocks as the company has proceeded cautiously with its AI investments.",
+      "mode": "premarket",
+      "scan_time": "2026-07-24 09:00:43 ET"
+    },
+    {
+      "rank": 5,
+      "ticker": "ARM",
+      "direction": "\u25bc",
+      "last_price": 284.84,
+      "prev_close": 291.62,
+      "chg_pct": -2.32,
+      "session_open": 282.6,
+      "session_high": 288.75,
+      "session_low": 281.44,
+      "session_vol": 0,
+      "catalyst": "General News",
+      "headline": "A new generation of futuristic, high-flying tech stocks has been cut down by roughly 60% from its highs. That is enough damage to start looking for opportunity \u2014 but not enough to make every stock a bargain.",
+      "mode": "premarket",
+      "scan_time": "2026-07-24 09:00:43 ET"
+    },
+    {
+      "rank": 6,
+      "ticker": "ASML",
+      "direction": "\u25bc",
+      "last_price": 1791.71,
+      "prev_close": 1826.71,
+      "chg_pct": -1.92,
+      "session_open": 1809.06,
+      "session_high": 1814.67,
+      "session_low": 1773.83,
+      "session_vol": 0,
+      "catalyst": "General News",
+      "headline": "ASML Holding, Lam Research, KLA Corp and Applied Materials are among the world\u2019s top suppliers of semiconductor manufacturing equipment.",
+      "mode": "premarket",
+      "scan_time": "2026-07-24 09:00:44 ET"
+    }
+  ],
+  "unusual_movers": [
+    {
+      "rank": 1,
+      "ticker": "SLB",
+      "direction": "\u25b2",
+      "last_price": 48.75,
+      "prev_close": 47.32,
+      "chg_pct": 3.01,
+      "session_open": 47.4,
+      "session_high": 49.83,
+      "session_low": 46.93,
+      "session_vol": 0,
+      "catalyst": "New Deal / Contract",
+      "headline": "Earlier this month, SLB announced an alliance with Liberty Energy to deliver modular infrastructure and integrated behind-the-meter power solutions for AI-driven data centers, while its OneSubsea joint venture secured a major multi-well subsea EPC contract from Eni for Phase 3 of the Baleine project offshore C\u00f4te d\u2019Ivoire. This combination highlights SLB\u2019s push into energy-hungry data center infrastructure while reinforcing its role in complex offshore developments through integrated subsea...",
+      "mode": "premarket",
+      "scan_time": "2026-07-24 09:00:41 ET"
+    }
+  ],
+  "earnings_today": [
+    {
+      "ticker": "NEE",
+      "next_earnings_date": "2026-07-24",
+      "avg_abs_move_pct": 4.25
+    }
+  ],
+  "near_breakout": [
+    {
+      "dedup_key": "AVGO:resistance_touch",
+      "category": "watchlist",
+      "ticker": "AVGO",
+      "priority": "MEDIUM",
+      "headline": "is testing resistance (0.9% away)",
+      "why_it_matters": "Price is approaching a level that has previously capped upside.",
+      "expected_impact": "Possible breakout if resistance breaks, or a pullback if it holds.",
+      "suggested_action": "Watch for a breakout with volume before chasing.",
+      "confidence": 55,
+      "time_sensitivity": "next 1-2 sessions",
+      "supporting_data": {
+        "dist_to_resistance_pct": 0.9,
+        "R1": 374.15
+      },
+      "created_at": "2026-07-18T07:52:08"
+    },
+    {
+      "dedup_key": "TSM:resistance_touch",
+      "category": "watchlist",
+      "ticker": "TSM",
+      "priority": "MEDIUM",
+      "headline": "is testing resistance (0.3% away)",
+      "why_it_matters": "Price is approaching a level that has previously capped upside.",
+      "expected_impact": "Possible breakout if resistance breaks, or a pullback if it holds.",
+      "suggested_action": "Watch for a breakout with volume before chasing.",
+      "confidence": 55,
+      "time_sensitivity": "next 1-2 sessions",
+      "supporting_data": {
+        "dist_to_resistance_pct": 0.33,
+        "R1": 406.18
+      },
+      "created_at": "2026-07-20T12:03:42"
+    },
+    {
+      "dedup_key": "PYPL:resistance_touch",
+      "category": "watchlist",
+      "ticker": "PYPL",
+      "priority": "MEDIUM",
+      "headline": "is testing resistance (0.5% away)",
+      "why_it_matters": "Price is approaching a level that has previously capped upside.",
+      "expected_impact": "Possible breakout if resistance breaks, or a pullback if it holds.",
+      "suggested_action": "Watch for a breakout with volume before chasing.",
+      "confidence": 55,
+      "time_sensitivity": "next 1-2 sessions",
+      "supporting_data": {
+        "dist_to_resistance_pct": 0.52,
+        "R1": 56.43
+      },
+      "created_at": "2026-07-21T09:03:44"
+    },
+    {
+      "dedup_key": "ASML:resistance_touch",
+      "category": "watchlist",
+      "ticker": "ASML",
+      "priority": "MEDIUM",
+      "headline": "is testing resistance (0.9% away)",
+      "why_it_matters": "Price is approaching a level that has previously capped upside.",
+      "expected_impact": "Possible breakout if resistance breaks, or a pullback if it holds.",
+      "suggested_action": "Watch for a breakout with volume before chasing.",
+      "confidence": 55,
+      "time_sensitivity": "next 1-2 sessions",
+      "supporting_data": {
+        "dist_to_resistance_pct": 0.89,
+        "R1": 1833.46
+      },
+      "created_at": "2026-07-21T12:02:42"
+    },
+    {
+      "dedup_key": "TXN:resistance_touch",
+      "category": "watchlist",
+      "ticker": "TXN",
+      "priority": "MEDIUM",
+      "headline": "is testing resistance (1.2% away)",
+      "why_it_matters": "Price is approaching a level that has previously capped upside.",
+      "expected_impact": "Possible breakout if resistance breaks, or a pullback if it holds.",
+      "suggested_action": "Watch for a breakout with volume before chasing.",
+      "confidence": 55,
+      "time_sensitivity": "next 1-2 sessions",
+      "supporting_data": {
+        "dist_to_resistance_pct": 1.21,
+        "R1": 297.35
+      },
+      "created_at": "2026-07-21T12:02:43"
+    },
+    {
+      "dedup_key": "MA:resistance_touch",
+      "category": "watchlist",
+      "ticker": "MA",
+      "priority": "MEDIUM",
+      "headline": "is testing resistance (0.1% away)",
+      "why_it_matters": "Price is approaching a level that has previously capped upside.",
+      "expected_impact": "Possible breakout if resistance breaks, or a pullback if it holds.",
+      "suggested_action": "Watch for a breakout with volume before chasing.",
+      "confidence": 55,
+      "time_sensitivity": "next 1-2 sessions",
+      "supporting_data": {
+        "dist_to_resistance_pct": 0.06,
+        "R1": 542.48
+      },
+      "created_at": "2026-07-21T12:02:53"
+    },
+    {
+      "dedup_key": "GOOGL:resistance_touch",
+      "category": "watchlist",
+      "ticker": "GOOGL",
+      "priority": "MEDIUM",
+      "headline": "is testing resistance (0.1% away)",
+      "why_it_matters": "Price is approaching a level that has previously capped upside.",
+      "expected_impact": "Possible breakout if resistance breaks, or a pullback if it holds.",
+      "suggested_action": "Watch for a breakout with volume before chasing.",
+      "confidence": 55,
+      "time_sensitivity": "next 1-2 sessions",
+      "supporting_data": {
+        "dist_to_resistance_pct": 0.08,
+        "R1": 348.82
+      },
+      "created_at": "2026-07-22T09:02:49"
+    },
+    {
+      "dedup_key": "SMCI:resistance_touch",
+      "category": "watchlist",
+      "ticker": "SMCI",
+      "priority": "MEDIUM",
+      "headline": "is testing resistance (0.9% away)",
+      "why_it_matters": "Price is approaching a level that has previously capped upside.",
+      "expected_impact": "Possible breakout if resistance breaks, or a pullback if it holds.",
+      "suggested_action": "Watch for a breakout with volume before chasing.",
+      "confidence": 55,
+      "time_sensitivity": "next 1-2 sessions",
+      "supporting_data": {
+        "dist_to_resistance_pct": 0.92,
+        "R1": 31.85
+      },
+      "created_at": "2026-07-22T12:02:46"
+    },
+    {
+      "dedup_key": "NFLX:resistance_touch",
+      "category": "watchlist",
+      "ticker": "NFLX",
+      "priority": "MEDIUM",
+      "headline": "is testing resistance (0.1% away)",
+      "why_it_matters": "Price is approaching a level that has previously capped upside.",
+      "expected_impact": "Possible breakout if resistance breaks, or a pullback if it holds.",
+      "suggested_action": "Watch for a breakout with volume before chasing.",
+      "confidence": 55,
+      "time_sensitivity": "next 1-2 sessions",
+      "supporting_data": {
+        "dist_to_resistance_pct": 0.08,
+        "R1": 69.92
+      },
+      "created_at": "2026-07-22T12:02:50"
+    },
+    {
+      "dedup_key": "NOW:resistance_touch",
+      "category": "watchlist",
+      "ticker": "NOW",
+      "priority": "MEDIUM",
+      "headline": "is testing resistance (0.5% away)",
+      "why_it_matters": "Price is approaching a level that has previously capped upside.",
+      "expected_impact": "Possible breakout if resistance breaks, or a pullback if it holds.",
+      "suggested_action": "Watch for a breakout with volume before chasing.",
+      "confidence": 55,
+      "time_sensitivity": "next 1-2 sessions",
+      "supporting_data": {
+        "dist_to_resistance_pct": 0.52,
+        "R1": 97.73
+      },
+      "created_at": "2026-07-23T09:02:48"
+    },
+    {
+      "dedup_key": "FTNT:resistance_touch",
+      "category": "watchlist",
+      "ticker": "FTNT",
+      "priority": "MEDIUM",
+      "headline": "is testing resistance (1.0% away)",
+      "why_it_matters": "Price is approaching a level that has previously capped upside.",
+      "expected_impact": "Possible breakout if resistance breaks, or a pullback if it holds.",
+      "suggested_action": "Watch for a breakout with volume before chasing.",
+      "confidence": 55,
+      "time_sensitivity": "next 1-2 sessions",
+      "supporting_data": {
+        "dist_to_resistance_pct": 0.99,
+        "R1": 154.99
+      },
+      "created_at": "2026-07-23T09:02:49"
+    },
+    {
+      "dedup_key": "GEV:resistance_touch",
+      "category": "watchlist",
+      "ticker": "GEV",
+      "priority": "MEDIUM",
+      "headline": "is testing resistance (0.6% away)",
+      "why_it_matters": "Price is approaching a level that has previously capped upside.",
+      "expected_impact": "Possible breakout if resistance breaks, or a pullback if it holds.",
+      "suggested_action": "Watch for a breakout with volume before chasing.",
+      "confidence": 55,
+      "time_sensitivity": "next 1-2 sessions",
+      "supporting_data": {
+        "dist_to_resistance_pct": 0.57,
+        "R1": 1019.56
+      },
+      "created_at": "2026-07-23T09:02:52"
+    },
+    {
+      "dedup_key": "V:resistance_touch",
+      "category": "watchlist",
+      "ticker": "V",
+      "priority": "MEDIUM",
+      "headline": "is testing resistance (0.1% away)",
+      "why_it_matters": "Price is approaching a level that has previously capped upside.",
+      "expected_impact": "Possible breakout if resistance breaks, or a pullback if it holds.",
+      "suggested_action": "Watch for a breakout with volume before chasing.",
+      "confidence": 55,
+      "time_sensitivity": "next 1-2 sessions",
+      "supporting_data": {
+        "dist_to_resistance_pct": 0.08,
+        "R1": 349.42
+      },
+      "created_at": "2026-07-23T09:02:54"
+    },
+    {
+      "dedup_key": "COIN:resistance_touch",
+      "category": "watchlist",
+      "ticker": "COIN",
+      "priority": "MEDIUM",
+      "headline": "is testing resistance (1.2% away)",
+      "why_it_matters": "Price is approaching a level that has previously capped upside.",
+      "expected_impact": "Possible breakout if resistance breaks, or a pullback if it holds.",
+      "suggested_action": "Watch for a breakout with volume before chasing.",
+      "confidence": 55,
+      "time_sensitivity": "next 1-2 sessions",
+      "supporting_data": {
+        "dist_to_resistance_pct": 1.23,
+        "R1": 164.58
+      },
+      "created_at": "2026-07-23T09:02:55"
+    },
+    {
+      "dedup_key": "MP:resistance_touch",
+      "category": "watchlist",
+      "ticker": "MP",
+      "priority": "MEDIUM",
+      "headline": "is testing resistance (0.4% away)",
+      "why_it_matters": "Price is approaching a level that has previously capped upside.",
+      "expected_impact": "Possible breakout if resistance breaks, or a pullback if it holds.",
+      "suggested_action": "Watch for a breakout with volume before chasing.",
+      "confidence": 55,
+      "time_sensitivity": "next 1-2 sessions",
+      "supporting_data": {
+        "dist_to_resistance_pct": 0.4,
+        "R1": 45.24
+      },
+      "created_at": "2026-07-23T09:02:56"
+    },
+    {
+      "dedup_key": "CRDO:resistance_touch",
+      "category": "watchlist",
+      "ticker": "CRDO",
+      "priority": "MEDIUM",
+      "headline": "is testing resistance (0.8% away)",
+      "why_it_matters": "Price is approaching a level that has previously capped upside.",
+      "expected_impact": "Possible breakout if resistance breaks, or a pullback if it holds.",
+      "suggested_action": "Watch for a breakout with volume before chasing.",
+      "confidence": 55,
+      "time_sensitivity": "next 1-2 sessions",
+      "supporting_data": {
+        "dist_to_resistance_pct": 0.76,
+        "R1": 237.63
+      },
+      "created_at": "2026-07-23T12:02:51"
+    },
+    {
+      "dedup_key": "AMZN:resistance_touch",
+      "category": "watchlist",
+      "ticker": "AMZN",
+      "priority": "MEDIUM",
+      "headline": "is testing resistance (0.8% away)",
+      "why_it_matters": "Price is approaching a level that has previously capped upside.",
+      "expected_impact": "Possible breakout if resistance breaks, or a pullback if it holds.",
+      "suggested_action": "Watch for a breakout with volume before chasing.",
+      "confidence": 55,
+      "time_sensitivity": "next 1-2 sessions",
+      "supporting_data": {
+        "dist_to_resistance_pct": 0.75,
+        "R1": 236.44
+      },
+      "created_at": "2026-07-23T12:02:54"
+    }
+  ]
+}

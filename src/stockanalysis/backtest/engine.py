@@ -206,6 +206,10 @@ def cli() -> None:
     parser.add_argument("--expiry", type=int, default=20)
     parser.add_argument("--tie", choices=["stop", "target"], default="stop")
     parser.add_argument("--refresh", action="store_true", help="ignore the data cache")
+    parser.add_argument("--grade", choices=["A+", "A", "B+", "B", "C"], default=None,
+                        help="restrict the summary to one grade band — use A+ to "
+                             "validate the live A+ alert gate against history before "
+                             "trusting it for real trades")
     args = parser.parse_args()
 
     tickers = ([t.upper() for t in args.tickers] if args.tickers
@@ -226,7 +230,14 @@ def cli() -> None:
     out = out_dir / f"backtest_{args.universe}_{args.start}_{args.end}.csv"
     df.to_csv(out, index=False)
     log.info("Saved %d signal(s) → %s", len(df), out)
-    print_summary(df)
+
+    if args.grade:
+        graded = df[df["grade"] == args.grade]
+        print(f"\n{'═' * 64}\n  {args.grade} GATE VALIDATION "
+              f"({len(graded)}/{len(df)} signals)\n{'═' * 64}")
+        print_summary(graded)
+    else:
+        print_summary(df)
 
 
 if __name__ == "__main__":

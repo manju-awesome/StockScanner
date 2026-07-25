@@ -29,8 +29,10 @@ Next Action recommendation (EXIT / TRIM / REDUCE / REVIEW / HOLD / ENTER?)
 derived from the alerts, target proximity, and the position's strategy
 scores in today's scan.
 
-The file is user-owned state, so it is never written by the scanner — only
-read. A missing file is not an error (the panel shows setup instructions).
+The file is user-owned state — the scanner never writes it. The webapp's
+Portfolio page can add/edit/delete rows through save_positions() below (via
+the Edit/Delete buttons), but a missing file is still not an error (the
+panel shows setup instructions).
 """
 
 from __future__ import annotations
@@ -87,11 +89,19 @@ def _date(val) -> date | None:
     return None
 
 
+POSITION_FIELDS = ("Ticker", "Shares", "Avg_Cost", "Entry_Date", "Strategy",
+                   "Stop", "Target", "Notes")
+
+
 def load_positions(path: str | Path | None = None) -> list[dict]:
     """
     Read portfolio.csv → list of position dicts. Missing file → []. Rows
     without a ticker are skipped; an unknown Strategy falls back to "watch"
     so a typo can't attach the wrong alert set to real money.
+
+    Columns beyond POSITION_FIELDS (e.g. a hand-added Target_Weight/Theme
+    for an allocation plan) are round-tripped verbatim under "_extra" so
+    save_positions() doesn't silently discard them on the next webapp edit.
     """
     p = Path(path) if path else PORTFOLIO_PATH
     if not p.exists():
@@ -107,6 +117,8 @@ def load_positions(path: str | Path | None = None) -> list[dict]:
             strategy = row.get("Strategy", "").lower() or "watch"
             if strategy not in VALID_STRATEGIES:
                 strategy = "watch"
+            extra = {k: v for k, v in row.items()
+                     if k and k not in POSITION_FIELDS}
             positions.append({
                 "Ticker":     ticker,
                 "Shares":     _num(row.get("Shares")) or 0.0,
@@ -116,7 +128,91 @@ def load_positions(path: str | Path | None = None) -> list[dict]:
                 "Stop":       _num(row.get("Stop")),
                 "Target":     _num(row.get("Target")),
                 "Notes":      row.get("Notes", ""),
+                **({"_extra": extra} if extra else {}),
             })
+    return positions
+
+
+def save_positions(positions: list[dict], path: str | Path | None = None) -> None:
+    """Write positions back to portfolio.csv in the format load_positions()
+    reads, preserving list order (callers control sort/placement) and any
+    "_extra" columns a row carries from the original file."""
+    p = Path(path) if path else PORTFOLIO_PATH
+    p.parent.mkdir(parents=True, exist_ok=True)
+    extra_cols = []
+    for pos in positions:
+        for k in (pos.get("_extra") or {}):
+            if k not in extra_cols:
+                extra_cols.append(k)
+    with open(p, "w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(POSITION_FIELDS) + extra_cols)
+        writer.writeheader()
+        for pos in positions:
+            entry_date = pos.get("Entry_Date")
+            row = {
+                "Ticker":     pos["Ticker"],
+                "Shares":     pos.get("Shares") or "",
+                "Avg_Cost":   pos.get("Avg_Cost") if pos.get("Avg_Cost") is not None else "",
+                "Entry_Date": entry_date.isoformat() if isinstance(entry_date, date) else (entry_date or ""),
+                "Strategy":   pos.get("Strategy") or "watch",
+                "Stop":       pos.get("Stop") if pos.get("Stop") is not None else "",
+                "Target":     pos.get("Target") if pos.get("Target") is not None else "",
+                "Notes":      pos.get("Notes") or "",
+                **(pos.get("_extra") or {}),
+            }
+            writer.writerow(row)
+
+
+def upsert_position(fields: dict, original_ticker: str | None = None,
+                    path: str | Path | None = None) -> list[dict]:
+    """Add a new position or update an existing one (matched by Ticker),
+    then save. `original_ticker` renames a row in place when the Edit form's
+    ticker was changed — without it, editing a ticker would leave the old
+    row behind as an orphan. Returns the full position list after saving.
+    Raises ValueError on a blank ticker (never silently drops the row)."""
+    ticker = (fields.get("Ticker") or "").strip().upper()
+    if not ticker:
+        raise ValueError("Ticker is required")
+    strategy = (fields.get("Strategy") or "").strip().lower() or "watch"
+    if strategy not in VALID_STRATEGIES:
+        strategy = "watch"
+    positions = load_positions(path)
+    # Preserve any "_extra" columns (Target_Weight, Theme, ...) belonging to
+    # the row this edit targets, so saving through the webapp doesn't erase
+    # hand-added metadata the form doesn't know about.
+    match_ticker = original_ticker.strip().upper() if original_ticker else ticker
+    matched = next((p for p in positions if p["Ticker"] == match_ticker), None)
+
+    parsed = {
+        "Ticker":     ticker,
+        "Shares":     _num(fields.get("Shares")) or 0.0,
+        "Avg_Cost":   _num(fields.get("Avg_Cost")),
+        "Entry_Date": _date(fields.get("Entry_Date")),
+        "Strategy":   strategy,
+        "Stop":       _num(fields.get("Stop")),
+        "Target":     _num(fields.get("Target")),
+        "Notes":      (fields.get("Notes") or "").strip(),
+        **({"_extra": matched["_extra"]} if matched and matched.get("_extra") else {}),
+    }
+
+    if original_ticker:
+        original_ticker = original_ticker.strip().upper()
+        positions = [p for p in positions if p["Ticker"] != original_ticker]
+    idx = next((i for i, p in enumerate(positions) if p["Ticker"] == ticker), None)
+    if idx is not None:
+        positions[idx] = parsed
+    else:
+        positions.append(parsed)
+    save_positions(positions, path)
+    return positions
+
+
+def delete_position(ticker: str, path: str | Path | None = None) -> list[dict]:
+    """Remove a position by ticker, then save. Returns the full position
+    list after saving; a ticker not present is a no-op."""
+    ticker = ticker.strip().upper()
+    positions = [p for p in load_positions(path) if p["Ticker"] != ticker]
+    save_positions(positions, path)
     return positions
 
 

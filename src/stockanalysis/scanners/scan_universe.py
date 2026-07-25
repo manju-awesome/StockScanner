@@ -80,6 +80,7 @@ from stockanalysis.reporting.signal_tracker import log_signals_from_rows, log_da
 from stockanalysis.core.put_candidate import compute_put_candidate
 from stockanalysis.core.call_candidate import compute_call_candidate
 from stockanalysis.reporting.dashboard import generate_dashboard, _day_trade_score, day_trade_levels
+from stockanalysis.reporting.research import load_watchlists, save_watchlists
 
 import pandas as pd
 import yfinance as yf
@@ -156,178 +157,61 @@ CFG_LT_RS_MIN           = -25
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-# Longterm category is only evaluated for this curated list of high-quality names
-DAY_TRADE_TICKERS=[# Mega-cap tech
-     "MSFT","NVDA","META","AMD","AVGO","PLTR","HOOD"]
+# These five used to be hardcoded ticker lists in this module. They now live
+# in data/watchlists.json (the same file the webapp's Portfolio/watchlist
+# star-toggle UI edits), so changing a universe is a JSON/UI edit, not a code
+# change + restart. A universe key missing from the json is created there as
+# an empty list — visible and editable in the UI — instead of scanning
+# nothing silently or crashing.
+_UNIVERSE_JSON_KEYS = {
+    "daytrade":  "daytrade",
+    "watchlist": "watchlist",
+    "sp500":     "sp500",
+    "longterm":  "Longterm",
+    "dividend":  "Dividend",
+}
 
 
+def _load_universe(name: str) -> list[str]:
+    json_key = _UNIVERSE_JSON_KEYS[name]
+    watchlists = load_watchlists()
+    if json_key not in watchlists:
+        watchlists[json_key] = []
+        save_watchlists(watchlists)
+    return list(watchlists.get(json_key) or [])
 
-WATCHLIST_TICKERS = [
-    # ── Chips / Semiconductors ────────────────────────────────────────────────
-    "GOOGL", "AMD", "AVGO", "ASML",
-    "TSM", "ARM", "INTC", "TXN",
-    "DELL", "SMCI", "MRVL", "QCOM",
-    #"KLAC", "LRCX", "AMAT",          # wafer fab equipment — AI capex beneficiaries
 
-    # ── Memory / Storage ──────────────────────────────────────────────────────
-    "MU", "WDC", "STX", "CIEN", "DRAM",
+DAY_TRADE_TICKERS = _load_universe("daytrade")
+WATCHLIST_TICKERS = _load_universe("watchlist")
+SP500_TICKERS     = _load_universe("sp500")
+LONGTERM_TICKERS  = _load_universe("longterm")
+DIVIDEND_STOCKS   = _load_universe("dividend")
 
-    # ── AI Infrastructure / Data Center ───────────────────────────────────────
-    "VRT", "APH", "CRDO", "INOD", "IREN", "CRWV", "NBIS",
-    "NFLX",                           # AI content + data center spend story
+# sector_focus="auto" applies the regime/sector funnel only at or above this
+# size — big index universes get pruned, curated watchlists scan in full
+FOCUS_MIN_UNIVERSE = 100
 
-    # ── Photonics / Networking ────────────────────────────────────────────────
-    "COHR", "LITE", "GLW", "AAOI",
-     #"VIAV",                           # optical test & measurement, fiber buildout
-
-    # ── Cloud / Software / Applications ───────────────────────────────────────
-    "PLTR", "NOW", "CRM", "MSFT", "GOOGL", "META", "AMZN",
-    "IGV", "ADBE", "WDAY", "ORCL",          # enterprise software with AI integration
-    "SNOW", "MDB",                    # data platforms riding AI wave
-
-    # ── Cybersecurity ─────────────────────────────────────────────────────────
-    "PANW", "CRWD", "ZS", "FTNT",    # core cyber — all strong momentum names
-    "S",                              # SentinelOne — AI-native security
-    "OKTA",                           # identity security recovery play
-
-    # ── Defense / Aerospace ───────────────────────────────────────────────────
-    "LMT", "RTX", "NOC", "GD",       # prime contractors — $900B+ defense budget
-    "GE",                             # GE Aerospace — jet engines, huge backlog
-    "KTOS",                   # "AVAV", drone plays — high beta defense
-    "RKLB",                           # Rocket Lab — space + defense
-    #"HII",                            # nuclear submarines
-    #"TDG",                            # TransDigm — aftermarket aerospace parts
-    #"LHX",                            # L3Harris — defense electronics
-
-    # ── Energy / Power (AI demand + nuclear renaissance) ──────────────────────
-    "BE",  # Bloom Energy — fuel cells, strong momentum
-
-    #"VST", "CEG", "GEV",             # power generation for AI data centers
-
-    #"OKLO", "NNE", "SMR",            # small modular reactors — speculative
-    #"FSLR",                           # First Solar — IRA beneficiary
-    #"NEE",                            # NextEra — largest US utility + renewables
-    #"ETN",                            # Eaton — power management, data center pick
-    #"ENPH",                           # Enphase — solar microinverters
-
-    # ── Quantum Computing ─────────────────────────────────────────────────────
-    "IONQ", "QBTS", "IBM", "RGTI",
-
-    # ── Rare Earth / Strategic Materials ──────────────────────────────────────
-    "MP", "USAR",
-
-    # ── Healthcare / Biotech / GLP-1 ─────────────────────────────────────────
-    "LLY", "NVO",                     # GLP-1 duopoly — Ozempic/Mounjaro
-    "HIMS",                           # GLP-1 compounder + telehealth
-    "UNH", # managed care — defensive + dividend
-
-    #"ISRG",                           # robotic surgery, strong moat
-    #"DXCM",                           # continuous glucose monitoring
-    "ABBV",                           # post-Humira diversification play
-    #"TMO",                            # Thermo Fisher — life science tools
-
-    # ── Fintech / Financial ───────────────────────────────────────────────────
-    "HOOD", "SOFI",                   # retail fintech with momentum
-    "V", "MA",                        # payment networks — defensive growth
-    "PYPL",                           # turnaround candidate
-    "COIN",                           # crypto proxy, high beta
-                         # SQ Block — fintech + Bitcoin exposure
-
-    # ── Consumer / EV ────────────────────────────────────────────────────────
-    "TSLA",                           # EV + AI + robotics narrative
-
-    # ── Sector ETFs (benchmarks + pattern recognition) ────────────────────────
-    "SMH", "IWM",                     # semiconductor ETF / small caps
-    "ITA",                            # aerospace & defense ETF
-    "GLD", "SLV",                     # gold/silver — safe haven momentum
+READY_TICKERS = [
+    "ACLS",
+    "APH",
+    "CARR",
+    "DAL",
+    "GEN",
+    "KLAC",
+    "LLY",
+    "MCHP",
+    "MMM",
+    "MPWR",
+    "NUE",
+    "NVDA",
+    "NVT",
+    "NXPI",
+    "ON",
+    "PWR",
+    "S",
+    "STLD",
+    "TDG",
 ]
-
-SP500_TICKERS = [
-
-    "MMM", "AOS", "ABT", "ABBV", "ACN", "ADBE", "AMD", "AES", "AFL", "A", "APD", "ABNB", "AKAM",
-    "ALB","ARE", "ALGN", "ALLE", "LNT", "ALL", "GOOGL", "GOOG", "MO", "AMZN", "AMCR", "AEE", "AAL", "AEP",
-    "AXP", "AIG", "AMT", "AWK", "AMP", "AME", "AMGN", "APH", "ADI", "ANSS", "AON", "APA", "AAPL",
-    "AMAT", "APTV", "ACGL", "ADM", "ANET", "AJG", "AIZ", "T", "ATO", "ADSK", "ADP", "AZO", "AVB",
-    "AVY", "AXON", "BKR", "BALL", "BAC", "BK", "BBWI", "BAX", "BDX", "WRB", "BBY", "BIO", "TECH",
-    "BIIB", "BLK", "BX", "BA", "BSX", "BMY", "AVGO", "BR", "BRO", "BF-B", "BLDR", "BG", "CDNS",
-    "CZR", "CPT", "CPB", "COF", "CAH", "KMX", "CCL", "CARR", "CTLT", "CAT", "CBOE", "CBRE", "CDW",
-    "CE", "COR", "CNC", "CNP", "CF", "CHRW", "CRL", "SCHW", "CHTR", "CVX", "CMG", "CB", "CHD", "CI",
-    "CINF", "CTAS", "CSCO", "C", "CFG", "CLX", "CME", "CMS", "KO", "CTSH", "CL", "CMCSA", "CMA",
-    "CAG", "COP", "ED", "STZ", "CEG", "COO", "CPRT", "GLW", "CPAY", "CTVA", "CSGP", "COST", "CTRA",
-    "CCI", "CSX", "CMI", "CVS", "DHR", "DRI", "DVA", "DAY", "DECK", "DE", "DAL", "DVN", "DXCM",
-    "FANG", "DLR", "DFS", "DG", "DLTR", "D", "DPZ", "DOV", "DHI", "DTE", "DUK", "DD", "EMN", "ETN",
-    "EBAY", "ECL", "EIX", "EW", "EA", "ELV", "LLY", "EMR", "ENPH", "ETR", "EOG", "EPAM", "EQT",
-    "EFX", "EQIX", "EQR", "ESS", "EL", "ETSY", "EG", "ES", "EXC", "EXPE", "EXPD", "EXR", "XOM",
-    "FFIV", "FDS", "FICO", "FAST", "FRT", "FDX", "FIS", "FITB", "FSLR", "FE", "FI", "FMC", "F",
-    "FTNT", "FTV", "FOXA", "FOX", "BEN", "FCX", "GRMN", "IT", "GE", "GEHC", "GEV", "GEN", "GNRC",
-    "GD", "GIS", "GM", "GPC", "GILD", "GS", "HAL", "HIG", "HAS", "HCA", "DOC", "HSIC", "HSY", "HES",
-    "HPE", "HLT", "HOLX", "HD", "HON", "HRL", "HST", "HWM", "HPQ", "HUBB", "HUM", "HBAN", "HII",
-    "IBM", "IEX", "IDXX", "ITW", "INCY", "IR", "PODD", "INTC", "ICE", "IFF", "IP", "IPG", "INTU",
-    "ISRG", "IVZ", "INVH", "IQV", "IRM", "JBHT", "JBL", "JKHY", "J", "JNJ", "JCI", "JPM", "JNPR",
-    "K", "KVUE", "KDP", "KEY", "KEYS", "KMB", "KIM", "KMI", "KLAC", "KHC", "KR", "LHX", "LH",
-    "LRCX", "LW", "LVS", "LDOS", "LEN", "LIN", "LYV", "LKQ", "LMT", "L", "LOW", "LULU", "LYB",
-    "MTB", "MRO", "MPC", "MKTX", "MAR", "MMC", "MLM", "MAS", "MA", "MTCH", "MKC", "MCD", "MCK",
-    "MDT", "MRK", "META", "MET", "MTD", "MGM", "MCHP", "MU", "MSFT", "MAA", "MRNA", "MHK", "MOH",
-    "TAP", "MDLZ", "MPWR", "MNST", "MCO", "MS", "MOS", "MSI", "MSCI", "NDAQ", "NTAP", "NFLX",
-    "NEM", "NWSA", "NWS", "NEE", "NKE", "NI", "NDSN", "NSC", "NTRS", "NOC", "NCLH", "NRG", "NUE",
-    "NVDA", "NVR", "NXPI", "ORLY", "OXY", "ODFL", "OMC", "ON", "OKE", "ORCL", "OTIS", "PCAR",
-    "PKG", "PANW", "PARA", "PH", "PAYX", "PAYC", "PYPL", "PNR", "PEP", "PFE", "PCG", "PM", "PSX",
-    "PNW", "PNC", "POOL", "PPG", "PPL", "PFG", "PG", "PGR", "PLD", "PRU", "PEG", "PTC", "PSA",
-    "PHM", "PWR", "QCOM", "DGX", "RL", "RJF", "RTX", "O", "REG", "REGN", "RF", "RSG", "RMD", "RVTY",
-    "ROK", "ROL", "ROP", "ROST", "RCL", "SPGI", "CRM", "SBAC", "SLB", "STX", "SEE", "SRE", "NOW",
-    "SHW", "SPG", "SWKS", "SJM", "SW", "SNA", "SOLV", "SO", "LUV", "SWK", "SBUX", "STT", "STLD",
-    "STE", "SYK", "SMCI", "SYF", "SNPS", "SYY", "TMUS", "TROW", "TTWO", "TPR", "TRGP", "TGT",
-    "TEL", "TDY", "TFX", "TER", "TSLA", "TXN", "TXT", "TMO", "TJX", "TSCO", "TT", "TDG", "TRV",
-    "TRMB", "TFC", "TYL", "TSN", "USB", "UBER", "UDR", "ULTA", "UNP", "UAL", "UPS", "URI", "UNH",
-    "UHS", "VLO", "VTR", "VRSN", "VRSK", "VZ", "VRTX", "VLTO", "VFC", "VTRS", "VICI", "V", "VST",
-    "WAB", "WBA", "WMT", "DIS", "WBD", "WM", "WAT", "WEC", "WFC", "WELL", "WST", "WDC", "WY", "WHR",
-    "WMB", "WTW", "GWW", "WYNN", "XEL", "XYL", "YUM", "ZBRA", "ZBH", "ZTS",
-]
-
-LONGTERM_TICKERS = [
-    # Mega-cap tech (hold through cycles)
-    "NVDA", "AMD", "AVGO", "ASML", "TSM", "MSFT", "GOOGL", "META", "AMZN",
-    # Enterprise software
-    "CRM", "NOW", "ORCL", "PLTR",
-    # Cyber
-    "PANW", "CRWD",
-    # Defense primes
-    "LMT", "RTX", "NOC", "GD", "GE",
-    # Energy infrastructure
-    "VST", "CEG", "ETN", "NEE",
-    # Healthcare
-    "LLY", "NVO", "UNH", "ISRG", "TMO", "ABBV",
-    # Financials
-    "V", "MA",
-    # Memory/storage (cyclical but dominant)
-    "MU", "WDC",
-    # Photonics
-    "GLW", "COHR",
-]
-
-# High-dividend stocks with solid fundamentals — yield ≥ ~3%, sustainable payout,
-# long dividend-growth records. Yields/payouts verified via yfinance July 2026.
-# Excluded on weak fundamentals: PFE (131% payout), UPS (106%), HRL (137%).
-DIVIDEND_STOCKS = [
-    # Telecom (VZ 6.7% yield / 19-yr growth streak; T 5.4% / 37% payout)
-    "VZ", "T",
-    # Midstream / pipelines (yields 3.7–6.9%; ET/ENB payout >100% GAAP but
-    # distribution coverage is cash-flow based and well covered)
-    "EPD", "ET", "ENB", "KMI", "OKE",
-    # Energy majors (CVX 4.2% / 38-yr aristocrat; XOM 3.0% / 42-yr)
-    "CVX", "XOM",
-    # Utilities (3.1–3.8%, regulated, payout 58–79%; ED 50-yr dividend king)
-    "DUK", "SO", "D", "ED",
-    # Consumer staples (PEP/CLX/TGT/KMB aristocrats; GIS 6.5% / 59% payout)
-    "PEP", "MO", "PM", "KMB", "GIS", "CLX", "TGT",
-    # Pharma (BMY 4.3% yield, 70% payout, fwd P/E ~9)
-    "BMY",
-    # Financials (USB 3.4% / 43% payout; TROW 4.4% aristocrat)
-    "USB", "TROW",
-    # REITs (O 5.1% monthly payer; VICI 6.6%, payout vs AFFO ~61%)
-    "O", "VICI",
-]
-
 
 
 
@@ -630,7 +514,29 @@ def categorize(row: dict) -> tuple:
 # ─────────────────────────────────────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────────────────────────────────────
-def main(tickers: list) -> list:
+def main(tickers: list, progress_cb=None, sector_focus: str = "auto") -> list:
+    """
+    progress_cb, if given, is called as progress_cb(stage: str, done: int,
+    total: int) at each pipeline phase — "fetch_qqq" once, then "scan" after
+    every ticker, then "grade"/"strategy_scores"/"tracking"/"writing" once
+    each. Callers (e.g. the webapp) use it to render live progress; a raising
+    callback never aborts the scan — failures are logged and swallowed.
+
+    sector_focus ("auto" | "on" | "off") controls the market funnel
+    (Universe → Regime → Sector Strength → Scanner, scanners.sector_filter):
+    "auto" applies it only to big universes (>= FOCUS_MIN_UNIVERSE tickers,
+    i.e. sp500), leaving curated watchlists — where every name was picked
+    deliberately — untouched. The funnel fails open: if any input is
+    unavailable the full universe scans as before.
+    """
+    def _progress(stage, done, total):
+        if progress_cb is None:
+            return
+        try:
+            progress_cb(stage, done, total)
+        except Exception as e:
+            log.debug("progress_cb failed (%s)", e)
+
     # Dedupe here, not in cli() — the scheduler calls main() directly, and a
     # duplicate ticker means two fetches minutes apart with slightly different
     # live quotes → two rows whose RS_Rank can straddle a filter threshold
@@ -640,9 +546,19 @@ def main(tickers: list) -> list:
                  len(tickers) - len(deduped))
     tickers = deduped
 
+    if sector_focus == "on" or (sector_focus == "auto"
+                                and len(tickers) >= FOCUS_MIN_UNIVERSE):
+        _progress("focus", 0, len(tickers))
+        from stockanalysis.scanners.sector_filter import apply_market_funnel
+        funnel = apply_market_funnel(tickers)
+        print(f"[Funnel] {funnel['note']}")
+        if funnel["applied"]:
+            tickers = funnel["tickers"]
+
     run_ts = datetime.now().strftime("%Y%m%d_%H%M")
     print("Fetching QQQ 3-month return …")
 
+    _progress("fetch_qqq", 0, len(tickers))
     log.info("Fetching QQQ 3-month return …")
     qqq_3m = fetch_qqq_return()
     log.info("QQQ 3m return: %.2f%%", qqq_3m)
@@ -652,6 +568,7 @@ def main(tickers: list) -> list:
 
     for i, ticker in enumerate(tickers, 1):
         log.info("[%d/%d] %s", i, len(tickers), ticker)
+        _progress(f"scan:{ticker}", i - 1, len(tickers))
         try:
             metrics = get_metrics(ticker, qqq_3m)
 
@@ -679,12 +596,25 @@ def main(tickers: list) -> list:
             })
         time.sleep(0.25)
 
+    _progress("grade", len(tickers), len(tickers))
     # ── Grade + entry/stop/target enrichment (earnings blackout & R:R gates) ──
     enrich_rows(rows)
 
     # ── Strategy scores: Investment / Swing / DayTrade (needs RR_T2 from
     #    enrich_rows and the full universe for the RS_Rank percentile) ─────────
     attach_strategy_scores(rows)
+
+    # ── High-conviction setup alerts (Put/Call_Score > 8, and A+ setups for
+    #    day/swing/long-term → HIGH, emailed, mirrored into ALERT_TICKERS) —
+    #    every scan checks, so whichever scan finds the setup raises it ──────
+    try:
+        from stockanalysis.core.watchlist_alerts import scan_rows_for_option_alerts
+        option_alerts = scan_rows_for_option_alerts(rows)
+        if option_alerts:
+            log.info("Option-score alerts fired: %s",
+                     ", ".join(f"{a['ticker']} ({a['category']})" for a in option_alerts))
+    except Exception as e:
+        log.warning("option-score alert scan failed: %s", e)
 
     # ── Feedback loop: log A/B signals + day-trade candidates ────────────────
     n_logged = log_signals_from_rows(rows)
@@ -722,6 +652,9 @@ def main(tickers: list) -> list:
         "MarketCap",
         "52W High", "52W Low",
         "Prev-Day High", "Prev-Day Low", "Prev-Day Close",
+        "S1", "R1", "Key_Level_Score", "Touches", "Volume_Confirmation",
+        "Dist_to_Support%", "Dist_to_Resistance%", "RR_to_Resistance",
+        "Breakout_Probability", "Bounce_Probability",
         "Pre-Market High", "Pre-Market Low",
         "ORB_High", "ORB_Low", "ORB_Status",
     ]
@@ -736,6 +669,7 @@ def main(tickers: list) -> list:
     df["_sort"] = df["Category"].map(cat_order).fillna(8)
     df = df.sort_values(["_sort", "Rank_Score"], ascending=[True, False]).drop(columns=["_sort"])
 
+    _progress("writing", len(tickers), len(tickers))
     # ── Full CSV ──────────────────────────────────────────────────────────────
     full_path = out_dir / f"stock_scan_{run_ts}.csv"
     df.to_csv(full_path, index=False)
@@ -788,6 +722,7 @@ def main(tickers: list) -> list:
         print(sub[show_cols].to_string(index=False, max_colwidth=60))
 
     print_day_trade_section(rows)
+    _progress("done", len(tickers), len(tickers))
     return rows
 
 
@@ -963,6 +898,15 @@ def cli() -> None:
         action="store_true",
         help="Print all available universes and their tickers, then exit",
     )
+    focus_group = parser.add_mutually_exclusive_group()
+    focus_group.add_argument(
+        "--focus", action="store_true",
+        help="Force the regime/sector-strength funnel on (any universe size)",
+    )
+    focus_group.add_argument(
+        "--no-focus", action="store_true",
+        help="Disable the funnel and scan the full universe",
+    )
     args = parser.parse_args()
 
     # ── Universe resolution ───────────────────────────────────────────────────────
@@ -978,16 +922,20 @@ def cli() -> None:
         base = UNIVERSE_MAP[args.universe]
         extras = [t.upper() for t in args.tickers if t.upper() not in base]
         universe = base + extras
+        universe_name = args.universe
         print(f"[Universe] {args.universe} ({len(base)}) + {len(extras)} custom → {len(universe)} total")
     elif args.tickers:
         # --tickers only: treat as a full override
         universe = [t.upper() for t in args.tickers]
+        universe_name = "custom"
         print(f"[Universe] custom ({len(universe)} tickers)")
     else:
         universe = UNIVERSE_MAP[args.universe]
+        universe_name = args.universe
         print(f"[Universe] {args.universe} ({len(universe)} tickers)")
 
-    rows = main(universe)   # main() dedupes the universe itself
+    sector_focus = "on" if args.focus else ("off" if args.no_focus else "auto")
+    rows = main(universe, sector_focus=sector_focus)   # main() dedupes the universe itself
 
     SEP = "=" * 100
 
@@ -1019,7 +967,8 @@ def cli() -> None:
 
     print(SEP)
 
-    generate_dashboard(rows, output_dir=out_dir, open_browser=True)
+    generate_dashboard(rows, output_dir=out_dir, open_browser=True,
+                       report_name=f"{universe_name}Report")
 
     '''
     print("=" * 80)

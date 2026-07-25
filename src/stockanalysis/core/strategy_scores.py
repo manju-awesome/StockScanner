@@ -41,12 +41,19 @@ Usage
 
 Columns added: RS_Rank, Investment_Score, Investment_Pass, Investment_Reason,
 Swing_Score, Swing_Pass, Swing_Reason, DayTrade_Score, DayTrade_Pass,
-DayTrade_Reason, LT_Entry_Timing.
+DayTrade_Reason, LT_Entry_Timing, Buy_Zone_Score, Buy_Zone_Label.
+
+Buy_Zone_Score/Label (core.buy_zone) answer a different question than
+Investment_Score: not "is this worth owning long-term" but "is the current
+price a good place to add" — valuation, pullback depth, and accumulation
+volume on top of quality and trend. See core/buy_zone.py.
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+from stockanalysis.core.buy_zone import compute_buy_zone
 
 # ── Primary filter thresholds (the user-facing strategy definitions) ─────────
 # Long-Term Growth
@@ -347,4 +354,160 @@ def attach_strategy_scores(rows: list[dict]) -> list[dict]:
             row["LT_Entry_Timing"] = lt_entry_timing(row)
         except Exception as e:
             row["LT_Entry_Timing"] = f"timing_error: {e}"
+        try:
+            zone = compute_buy_zone(row)
+        except Exception as e:
+            zone = {"score": None, "label": None, "drivers": [f"buy_zone_error: {e}"]}
+        row["Buy_Zone_Score"] = zone["score"]
+        row["Buy_Zone_Label"] = zone["label"]
     return rows
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CARD RANKS (dashboard Top-5 ordering)
+# ─────────────────────────────────────────────────────────────────────────────
+# Moved here from reporting/dashboard.py so the Research Library and the A+
+# setup alerts share the EXACT formulas the dashboard cards rank by (the
+# "Score 113" badge). Unbounded additive scores, distinct from the 0-100
+# Swing_Score/DayTrade_Score strategy filters above; -999 = gate failed /
+# Avoid, i.e. not rankable. The scheduler's A+ bands sit on top of these
+# (day >= 80, swing >= 95 — see scheduler.GRADE_BANDS).
+
+
+def day_card_rank(row: dict) -> float:
+    """
+    Day trade card rank — prioritises intraday momentum signals.
+    Best candidates: Momentum stocks, above VWAP, high RVOL, tight ATR.
+    """
+    score = 0.0
+    cat        = _v(row, "Category", "")
+    # Prefer time-adjusted intraday RVOL — daily RVOL reads ~0.3 all morning
+    rvol       = _v(row, "RVOL_Intraday") or _v(row, "RVOL", 0) or 0
+    above_vwap = _v(row, "Above_VWAP", False)
+    rs         = _v(row, "RS", 0) or 0
+    adx        = _v(row, "ADX_14", 0) or 0
+    rsi        = _v(row, "RSI_14", 50) or 50
+    atr_pct    = _v(row, "ATR_Pct", 99) or 99
+    dist       = _v(row, "Dist_52W_High%", -999) or -999
+    days_52h   = _v(row, "Days_Since_52W_High", 999) or 999
+    above200   = _v(row, "Above_200MA", False)
+    entry_pass = _v(row, "Entry_Gate_Pass", False)
+
+    if not entry_pass or cat == "Avoid":
+        return -999
+
+    # Category bonus — Momentum best for day trades
+    if cat == "Momentum":              score += 30
+    elif cat == "Momentum-Pullback":   score += 15
+    elif cat == "Turnaround":          score += 5
+
+    # RVOL — most important intraday signal
+    if rvol >= 2.0:    score += 25
+    elif rvol >= 1.5:  score += 18
+    elif rvol >= 1.2:  score += 10
+    elif rvol >= 0.8:  score += 5
+
+    # Above VWAP — buyers in control
+    if above_vwap:     score += 15
+
+    # ADX — trend strength (day trades need trend)
+    if adx >= 35:      score += 12
+    elif adx >= 25:    score += 8
+    elif adx >= 20:    score += 4
+
+    # RS — relative strength vs QQQ
+    if rs >= 50:       score += 10
+    elif rs >= 20:     score += 7
+    elif rs >= 0:      score += 3
+    else:              score -= 5
+
+    # RSI — not overbought or oversold
+    if 45 <= rsi <= 65: score += 8
+    elif 35 <= rsi < 45 or 65 < rsi <= 72: score += 4
+
+    # ATR% — lower = tighter moves = better risk control intraday
+    if atr_pct <= 3:   score += 8
+    elif atr_pct <= 5: score += 4
+    elif atr_pct > 10: score -= 10   # too wild for day trade
+
+    # Fresh near 52W high
+    if dist >= -5 and days_52h <= 5:   score += 10
+    elif dist >= -10 and days_52h <= 10: score += 5
+
+    # Above 200MA — structural health
+    if above200:       score += 5
+
+    return round(score, 1)
+
+
+def swing_card_rank(row: dict) -> float:
+    """
+    Swing trade card rank — multi-day to multi-week setups.
+    Best candidates: MP or VCP with coiling + low pullback vol + RS improving.
+    """
+    score = 0.0
+    cat        = _v(row, "Category", "")
+    rs         = _v(row, "RS", 0) or 0
+    rsi        = _v(row, "RSI_14", 50) or 50
+    bb         = _v(row, "BB_PctB", 1) or 1
+    pvol       = _v(row, "Pullback_Vol_Ratio", 2) or 2
+    atr_shrink = _v(row, "ATR Shrinking", False)
+    above200   = _v(row, "Above_200MA", False)
+    vol_dry    = _v(row, "VolumeDryingUp", False)
+    atr_pct    = _v(row, "ATR_Pct", 99) or 99
+    p50pct     = _v(row, "Price_vs_50MA%", -999) or -999
+    earn_beat  = _v(row, "EarningsBeat", False)
+    entry_pass = _v(row, "Entry_Gate_Pass", False)
+
+    if not entry_pass or cat == "Avoid":
+        return -999
+
+    # Category bonus
+    if cat == "Momentum-Pullback": score += 30
+    elif cat == "VCP Setup":       score += 28
+    elif cat == "Momentum":        score += 20
+    elif cat == "Turnaround":      score += 10
+
+    # RS — must be improving or positive
+    if rs >= 50:    score += 20
+    elif rs >= 20:  score += 14
+    elif rs >= 0:   score += 8
+    elif rs >= -10: score += 2
+    else:           score -= 8
+
+    # BB coil — compressed = energy building
+    if bb <= 0.1:   score += 18
+    elif bb <= 0.2: score += 14
+    elif bb <= 0.3: score += 10
+    elif bb <= 0.4: score += 6
+
+    # ATR shrinking — volatility contracting
+    if atr_shrink:  score += 12
+
+    # Pullback volume — light selling = healthy
+    if pvol <= 0.6: score += 10
+    elif pvol <= 0.8: score += 7
+    elif pvol <= 1.0: score += 4
+
+    # Above 200MA
+    if above200:    score += 8
+
+    # Volume drying up — accumulation signal
+    if vol_dry:     score += 6
+
+    # RSI sweet spot for swing
+    if 30 <= rsi <= 50: score += 8   # oversold bouncing
+    elif 50 < rsi <= 65: score += 5  # healthy
+
+    # Near 50MA (reclaim candidate)
+    if -5 <= p50pct <= 5:  score += 8
+    elif -15 <= p50pct < -5: score += 4
+
+    # Earnings beat = fundamental catalyst
+    if earn_beat:   score += 5
+
+    # ATR penalty for swing (too volatile = hard to hold)
+    if atr_pct > 12: score -= 8
+    elif atr_pct > 8: score -= 3
+
+    return round(score, 1)

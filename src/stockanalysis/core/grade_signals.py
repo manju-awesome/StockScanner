@@ -653,7 +653,8 @@ def classify_grade_and_signals(row: dict) -> tuple[str, dict]:
         signals = _signals_longterm(row)
 
     else:
-        # Avoid / Error / gate-failed
+        # Avoid / Error / gate-failed — no trade plan, but earnings countdown
+        # is purely informational (independent of grade), so it still applies.
         avoid_reason = row.get("Entry_Gate_Reason") or row.get("Cat_Reason") or "No category matched"
         return "X", dict(
             entry="No trade — Avoid",
@@ -661,6 +662,7 @@ def classify_grade_and_signals(row: dict) -> tuple[str, dict]:
             target="N/A",
             notes=[f"Avoid: {avoid_reason}"],
             size_flag="NONE",
+            days_to_earnings=_days_to_earnings(row),
         )
 
     # ── Reward:risk gate ──────────────────────────────────────────

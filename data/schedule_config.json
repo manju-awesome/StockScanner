@@ -1,0 +1,89 @@
+{
+ "earnings_alerts": {
+  "enabled": true,
+  "type": "daily",
+  "times": [
+   "06:30"
+  ]
+ },
+ "premarket_brief": {
+  "enabled": true,
+  "type": "daily",
+  "times": [
+   "07:00",
+   "08:00"
+  ]
+ },
+ "watchlist_alerts": {
+  "enabled": true,
+  "type": "daily",
+  "times": [
+   "09:00",
+   "12:00"
+  ]
+ },
+ "news_alerts": {
+  "enabled": true,
+  "type": "interval",
+  "minutes": 10
+ },
+ "swing_premarket": {
+  "enabled": false,
+  "type": "daily",
+  "times": [
+   "08:00"
+  ]
+ },
+ "calls_premarket": {
+  "enabled": false,
+  "type": "daily",
+  "times": [
+   "08:05"
+  ]
+ },
+ "day_session_init": {
+  "enabled": true,
+  "type": "daily",
+  "times": [
+   "08:30"
+  ]
+ },
+ "daytrade_scans": {
+  "enabled": true,
+  "type": "interval",
+  "minutes": 15
+ },
+ "puts_midday": {
+  "enabled": false,
+  "type": "daily",
+  "times": [
+   "11:40"
+  ]
+ },
+ "vix_adaptive_puts": {
+  "enabled": true,
+  "type": "interval",
+  "minutes": 30
+ },
+ "full_close": {
+  "enabled": false,
+  "type": "daily",
+  "times": [
+   "16:30"
+  ]
+ },
+ "friday_scan": {
+  "enabled": false,
+  "type": "daily",
+  "times": [
+   "16:45"
+  ]
+ },
+ "nightly_cleanup": {
+  "enabled": true,
+  "type": "daily",
+  "times": [
+   "23:30"
+  ]
+ }
+}

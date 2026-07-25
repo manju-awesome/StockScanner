@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "webapp",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["src/stockanalysis/webapp/app.py"],
+      "port": 8899
+    }
+  ]
+}

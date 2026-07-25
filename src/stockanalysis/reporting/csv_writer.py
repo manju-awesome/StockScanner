@@ -51,6 +51,11 @@ COLUMN_ORDER = [
     "Pre-Market Low", "Pre-Market High",
     "Prev-Day Low", "Prev-Day High",
 
+    # Key levels (support/resistance)
+    "S1", "R1", "Key_Level_Score", "Touches", "Volume_Confirmation",
+    "Dist_to_Support%", "Dist_to_Resistance%", "RR_to_Resistance",
+    "Breakout_Probability", "Bounce_Probability",
+
     # Volatility
     "ATR20", "ATR_Pct", "ATR Shrinking",
 
@@ -77,7 +82,9 @@ COLUMN_ORDER = [
 ]
 
 # Columns to exclude from the CSV (internal calc helpers)
-_EXCLUDE = {"_prior_52w_high", "_prior_52w_low"}
+_EXCLUDE = {"_prior_52w_high", "_prior_52w_low",
+           "BusinessSummary"}  # full paragraph text — belongs on the research
+                              # page (research.py), not a scan CSV column
 
 
 def _fmt(value) -> str:

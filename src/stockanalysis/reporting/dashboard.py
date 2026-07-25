@@ -185,147 +185,13 @@ _GRADE_COLORS = {
 }
 
 
-def _day_trade_score(row: dict) -> float:
-    """
-    Day trade score — prioritises intraday momentum signals.
-    Best candidates: Momentum stocks, above VWAP, high RVOL, tight ATR.
-    """
-    score = 0.0
-    cat        = _v(row, "Category", "")
-    # Prefer time-adjusted intraday RVOL — daily RVOL reads ~0.3 all morning
-    rvol       = _v(row, "RVOL_Intraday") or _v(row, "RVOL", 0) or 0
-    vol20      = _v(row, "Vol_vs_20D", 0) or 0
-    above_vwap = _v(row, "Above_VWAP", False)
-    rs         = _v(row, "RS", 0) or 0
-    adx        = _v(row, "ADX_14", 0) or 0
-    rsi        = _v(row, "RSI_14", 50) or 50
-    atr_pct    = _v(row, "ATR_Pct", 99) or 99
-    dist       = _v(row, "Dist_52W_High%", -999) or -999
-    days_52h   = _v(row, "Days_Since_52W_High", 999) or 999
-    above200   = _v(row, "Above_200MA", False)
-    entry_pass = _v(row, "Entry_Gate_Pass", False)
-
-    if not entry_pass or cat == "Avoid":
-        return -999
-
-    # Category bonus — Momentum best for day trades
-    if cat == "Momentum":              score += 30
-    elif cat == "Momentum-Pullback":   score += 15
-    elif cat == "Turnaround":          score += 5
-
-    # RVOL — most important intraday signal
-    if rvol >= 2.0:    score += 25
-    elif rvol >= 1.5:  score += 18
-    elif rvol >= 1.2:  score += 10
-    elif rvol >= 0.8:  score += 5
-
-    # Above VWAP — buyers in control
-    if above_vwap:     score += 15
-
-    # ADX — trend strength (day trades need trend)
-    if adx >= 35:      score += 12
-    elif adx >= 25:    score += 8
-    elif adx >= 20:    score += 4
-
-    # RS — relative strength vs QQQ
-    if rs >= 50:       score += 10
-    elif rs >= 20:     score += 7
-    elif rs >= 0:      score += 3
-    else:              score -= 5
-
-    # RSI — not overbought or oversold
-    if 45 <= rsi <= 65: score += 8
-    elif 35 <= rsi < 45 or 65 < rsi <= 72: score += 4
-
-    # ATR% — lower = tighter moves = better risk control intraday
-    if atr_pct <= 3:   score += 8
-    elif atr_pct <= 5: score += 4
-    elif atr_pct > 10: score -= 10   # too wild for day trade
-
-    # Fresh near 52W high
-    if dist >= -5 and days_52h <= 5:   score += 10
-    elif dist >= -10 and days_52h <= 10: score += 5
-
-    # Above 200MA — structural health
-    if above200:       score += 5
-
-    return round(score, 1)
-
-
-def _swing_trade_score(row: dict) -> float:
-    """
-    Swing trade score — multi-day to multi-week setups.
-    Best candidates: MP or VCP with coiling + low pullback vol + RS improving.
-    """
-    score = 0.0
-    cat        = _v(row, "Category", "")
-    rs         = _v(row, "RS", 0) or 0
-    adx        = _v(row, "ADX_14", 0) or 0
-    rsi        = _v(row, "RSI_14", 50) or 50
-    bb         = _v(row, "BB_PctB", 1) or 1
-    pvol       = _v(row, "Pullback_Vol_Ratio", 2) or 2
-    atr_shrink = _v(row, "ATR Shrinking", False)
-    above200   = _v(row, "Above_200MA", False)
-    rvol       = _v(row, "RVOL", 0) or 0
-    vol_dry    = _v(row, "VolumeDryingUp", False)
-    dist       = _v(row, "Dist_52W_High%", -999) or -999
-    atr_pct    = _v(row, "ATR_Pct", 99) or 99
-    p50pct     = _v(row, "Price_vs_50MA%", -999) or -999
-    earn_beat  = _v(row, "EarningsBeat", False)
-    entry_pass = _v(row, "Entry_Gate_Pass", False)
-
-    if not entry_pass or cat == "Avoid":
-        return -999
-
-    # Category bonus
-    if cat == "Momentum-Pullback": score += 30
-    elif cat == "VCP Setup":       score += 28
-    elif cat == "Momentum":        score += 20
-    elif cat == "Turnaround":      score += 10
-
-    # RS — must be improving or positive
-    if rs >= 50:    score += 20
-    elif rs >= 20:  score += 14
-    elif rs >= 0:   score += 8
-    elif rs >= -10: score += 2
-    else:           score -= 8
-
-    # BB coil — compressed = energy building
-    if bb <= 0.1:   score += 18
-    elif bb <= 0.2: score += 14
-    elif bb <= 0.3: score += 10
-    elif bb <= 0.4: score += 6
-
-    # ATR shrinking — volatility contracting
-    if atr_shrink:  score += 12
-
-    # Pullback volume — light selling = healthy
-    if pvol <= 0.6: score += 10
-    elif pvol <= 0.8: score += 7
-    elif pvol <= 1.0: score += 4
-
-    # Above 200MA
-    if above200:    score += 8
-
-    # Volume drying up — accumulation signal
-    if vol_dry:     score += 6
-
-    # RSI sweet spot for swing
-    if 30 <= rsi <= 50: score += 8   # oversold bouncing
-    elif 50 < rsi <= 65: score += 5  # healthy
-
-    # Near 50MA (reclaim candidate)
-    if -5 <= p50pct <= 5:  score += 8
-    elif -15 <= p50pct < -5: score += 4
-
-    # Earnings beat = fundamental catalyst
-    if earn_beat:   score += 5
-
-    # ATR penalty for swing (too volatile = hard to hold)
-    if atr_pct > 12: score -= 8
-    elif atr_pct > 8: score -= 3
-
-    return round(score, 1)
+# Card ranking formulas moved to core/strategy_scores.py (day_card_rank /
+# swing_card_rank) so the Research Library's rank columns and the A+ setup
+# alerts use the EXACT same numbers these Top-5 cards rank by.
+from stockanalysis.core.strategy_scores import (            # noqa: E402
+    day_card_rank as _day_trade_score,
+    swing_card_rank as _swing_trade_score,
+)
 
 
 def _call_score(row: dict) -> float:
@@ -574,7 +440,7 @@ def _stock_card(row: dict, section: str) -> str:
                 padding:14px 16px;break-inside:avoid;margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
         <div>
-          <span style="font-size:17px;font-weight:500;color:#0b0b0b">{ticker}</span>{_research_link(ticker)}
+          <span style="font-size:17px;font-weight:500;color:#0b0b0b">{_tv_link(ticker)}</span>{_research_link(ticker)}
           <span style="font-size:13px;color:#898781;margin-left:6px">${price:,.2f}</span>
         </div>
         <div style="display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end">
@@ -671,6 +537,8 @@ def _longterm_card(row: dict) -> str:
     timing   = _v(row, "LT_Entry_Timing", "")
     earn     = _v(row, "EarningsDate", "N/A")
     cat      = _v(row, "Category", "—")
+    bz_score = _v(row, "Buy_Zone_Score")
+    bz_label = _v(row, "Buy_Zone_Label")
 
     # ── Star rating: score/20, floor 1 star (cards are pass-gated) ─────────
     n_stars = max(1, min(5, round(score / 20)))
@@ -711,6 +579,13 @@ def _longterm_card(row: dict) -> str:
             return "—"
         rel = (px / price - 1) * 100
         return f"{_fmt(px)} ({_pct(rel)})"
+
+    bz_badge = ""
+    if bz_score is not None:
+        bz_color = ("#0F6E56" if bz_score >= 80 else
+                    "#8a6d1a" if bz_score >= 60 else "#A32D2D")
+        bz_badge = (f'<span style="color:{bz_color};font-weight:600">'
+                    f'{_html.escape(str(bz_label))} {bz_score}</span>')
 
     tranches = [("Buy now", "25%", _fmt(price)),
                 ("Buy at 8EMA", "25%", _lvl(ema8)),
@@ -758,7 +633,7 @@ def _longterm_card(row: dict) -> str:
                 padding:14px 16px;break-inside:avoid;margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
         <div>
-          <span style="font-size:17px;font-weight:500;color:#0b0b0b">{ticker}</span>{_research_link(ticker)}
+          <span style="font-size:17px;font-weight:500;color:#0b0b0b">{_tv_link(ticker)}</span>{_research_link(ticker)}
           <span style="font-size:13px;color:#898781;margin-left:6px">${price:,.2f}</span>
           <div style="font-size:10px;color:#898781">{_html.escape(str(name))} · {_html.escape(str(sector))}</div>
         </div>
@@ -772,7 +647,9 @@ def _longterm_card(row: dict) -> str:
       <div style="font-size:11px;font-weight:600;color:#898781;margin-bottom:2px">REASONS</div>
       <div style="margin-bottom:10px">{reason_rows}</div>
 
-      <div style="font-size:11px;font-weight:600;color:#898781;margin-bottom:2px">ENTRY</div>
+      <div style="font-size:11px;font-weight:600;color:#898781;margin-bottom:2px">
+        ENTRY {f'· {bz_badge}' if bz_badge else ''}
+      </div>
       <div style="background:#f9f9f7;border-radius:8px;padding:8px 10px;margin-bottom:8px">
         {tranche_rows}{timing_note}
       </div>
@@ -1302,7 +1179,7 @@ def _portfolio_html(view: list[dict], totals: dict,
                     f'{_html.escape(action)}</span>')
         rows_html.append(f"""
         <tr style="border-top:0.5px solid #e1e0d9;{'opacity:0.65' if watch else ''}">
-          <td style="padding:6px 8px;font-weight:600">{p['Ticker']}{_research_link(p['Ticker'])}</td>
+          <td style="padding:6px 8px;font-weight:600">{_tv_link(p['Ticker'])}{_research_link(p['Ticker'])}</td>
           <td style="padding:6px 8px">{p['Strategy']}</td>
           <td style="padding:6px 8px">{p.get('Cap') or '—'}</td>
           <td style="padding:6px 8px;text-align:right">{p['Shares']:g}</td>
@@ -1450,13 +1327,14 @@ def _macro_tags(title: str) -> list[str]:
     return sorted({label for kw, label in _MACRO_TAGS if kw in t})
 
 
-def _econ_news_html(max_items: int = 6) -> str:
+def _fetch_econ_headlines(max_items: int = 6) -> list[dict]:
     """
     Major economic/market-moving headlines — pulled from the index feeds
     (SPY/QQQ/^GSPC/^VIX), deduped, kept only when macro-tagged, with
-    macro-specific stories ranked above generic market wrap-ups. Sits above
-    the market-pulse strip (whose econ calendar covers the Fed outlook).
-    Network-dependent; returns '' on failure or when nothing qualifies.
+    macro-specific stories ranked above generic market wrap-ups.
+    Network-dependent; returns [] on failure or when nothing qualifies.
+    Pure data — _econ_news_html() renders it, generate_dashboard() also
+    reuses it for snapshot.json so the fetch happens only once per scan.
     """
     from stockanalysis.reporting.research import _fetch_ticker_news
     items, seen = [], set()
@@ -1478,14 +1356,18 @@ def _econ_news_html(max_items: int = 6) -> str:
                 items.append(n)
         except Exception:
             continue
-    if not items:
-        return ""
     # newest first, then macro-specific above bare market wrap-ups
     # (stable sorts compose: second sort preserves date order within bands)
     items.sort(key=lambda n: n["when"], reverse=True)
     items.sort(key=lambda n: n["tags"] == ["MARKET"])
-    items = items[:max_items]
+    return items[:max_items]
 
+
+def _econ_news_html(items: list[dict]) -> str:
+    """Render pre-fetched econ headlines (see _fetch_econ_headlines). Sits
+    above the market-pulse strip (whose calendar covers the Fed outlook)."""
+    if not items:
+        return ""
     lis = []
     for n in items:
         chips = "".join(
@@ -1545,7 +1427,7 @@ def _day_session_html(output_dir: Path) -> str:
             f'<span style="background:{bg};color:{fg};font-size:11px;'
             f'{"font-weight:600;" if bold else ""}padding:3px 9px;'
             f'border-radius:5px;margin:0 4px 4px 0;display:inline-block">'
-            f'{_html.escape(str(t))}{_research_link(t)}</span>'
+            f'{_tv_link(t)}{_research_link(t)}</span>'
             for t in tickers)
 
     return f"""
@@ -1631,7 +1513,7 @@ def _priority_queue_html(rows: list[dict], top_n: int = 10) -> str:
         trs.append(f"""
         <tr style="border-top:0.5px solid #e1e0d9">
           <td style="padding:7px 8px;font-weight:600;color:#898781">{dot} {i}</td>
-          <td style="padding:7px 8px;font-weight:650;font-size:14px">{_v(r, "Ticker", "?")}{_research_link(_v(r, "Ticker"))}</td>
+          <td style="padding:7px 8px;font-weight:650;font-size:14px">{_tv_link(_v(r, "Ticker"))}{_research_link(_v(r, "Ticker"))}</td>
           <td style="padding:7px 8px">{_stars_html(r.get("Conv_Stars", 1), 13)}</td>
           <td style="padding:7px 8px"><span style="background:{a_bg};color:{a_fg};
               font-size:11px;font-weight:600;padding:3px 9px;border-radius:5px">
@@ -1803,6 +1685,20 @@ def _conviction_strip_html(row: dict) -> str:
 _RESEARCH_PAGES: set = set()
 
 
+def _tv_link(ticker) -> str:
+    """Ticker text as a TradingView chart link (new tab), inheriting the
+    surrounding font styling. No exchange prefix — TradingView resolves it
+    (hardcoding NASDAQ: would break NYSE names); '-' share classes become
+    '.' (yfinance BRK-B == TradingView BRK.B). The 📄 research link next to
+    it is unchanged."""
+    if not ticker:
+        return "?"
+    sym = str(ticker).replace("-", ".")
+    return (f'<a href="https://www.tradingview.com/chart/?symbol={sym}" '
+            f'target="_blank" style="text-decoration:none;color:inherit" '
+            f'title="Open TradingView chart">{ticker}</a>')
+
+
 def _research_link(ticker) -> str:
     """📄 link to the ticker's research page, '' if none was generated."""
     if not ticker or ticker not in _RESEARCH_PAGES:
@@ -1840,7 +1736,7 @@ def _turnaround_html(recovery: list[dict]) -> str:
         trs.append(f"""
         <tr style="border-top:0.5px solid #e1e0d9;vertical-align:top">
           <td style="padding:8px;font-weight:650;font-size:14px">
-              {_v(r, "Ticker", "?")}{_research_link(_v(r, "Ticker"))}
+              {_tv_link(_v(r, "Ticker"))}{_research_link(_v(r, "Ticker"))}
               <div style="font-size:10px;color:#898781;font-weight:400">
                 {_fmt(_v(r, "Current Price"))} · {_pct(_v(r, "Dist_52W_High%"))} off high</div></td>
           <td style="padding:8px"><span style="background:{s_bg};color:{s_fg};
@@ -1879,12 +1775,90 @@ def _turnaround_html(recovery: list[dict]) -> str:
     </div>"""
 
 
+def _snap_row(r: dict) -> dict:
+    """Compact per-ticker projection for snapshot.json top-N lists."""
+    return {
+        "ticker": _v(r, "Ticker"), "price": _v(r, "Current Price"),
+        "score": round(_v(r, "_dashboard_score", 0) or 0),
+        "category": _v(r, "Category"), "grade": _v(r, "Grade"),
+        "action": _v(r, "Conv_Action"), "action_reason": _v(r, "Conv_Action_Reason"),
+        "stars": _v(r, "Conv_Stars"),
+    }
+
+
+def build_snapshot(rows: list[dict], regime: dict, opp: dict,
+                   pulse: dict | None, top_day: list[dict],
+                   top_swing: list[dict], top_lt: list[dict],
+                   recovery: list[dict], econ_headlines: list[dict],
+                   pf_view: list[dict], pf_totals: dict,
+                   pf_alloc: dict) -> dict:
+    """
+    Distilled JSON snapshot of a completed scan — the webapp's dashboard
+    homepage reads this instead of re-deriving everything from CSVs/rows
+    or scraping the generated HTML. Pure function: no I/O, easy to test.
+    """
+    total = len(rows)
+    cat_counts = {}
+    for r in rows:
+        c = _v(r, "Category", "Unknown")
+        cat_counts[c] = cat_counts.get(c, 0) + 1
+
+    vix = (pulse or {}).get("vix") or {}
+    spy = (pulse or {}).get("spy") or {}
+    qqq = (pulse or {}).get("qqq") or {}
+    market = {
+        "vix": vix.get("level"), "vix_change": vix.get("change"),
+        "spy_price": spy.get("price"), "spy_chg_pct": spy.get("day_chg_pct"),
+        "spy_strength": spy.get("strength"),
+        "qqq_price": qqq.get("price"), "qqq_chg_pct": qqq.get("day_chg_pct"),
+        "qqq_strength": qqq.get("strength"),
+    }
+
+    alerts = []
+    for p in pf_view:
+        for a in p.get("Alerts") or []:
+            alerts.append({"ticker": p["Ticker"], "text": a,
+                           "severity": "high" if "⛔" in a else "medium"})
+
+    return {
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "total_scanned": total,
+        "category_counts": cat_counts,
+        "regime": {"regime": regime.get("regime"), "score": regime.get("score"),
+                  "drivers": regime.get("drivers"),
+                  "multipliers": regime.get("multipliers"),
+                  "guidance": regime.get("guidance")},
+        "opportunity": opp,
+        "market": market,
+        "top_day":   [_snap_row(r) for r in top_day],
+        "top_swing": [_snap_row(r) for r in top_swing],
+        "top_longterm": [_snap_row(r) for r in top_lt],
+        "recovery": [{"ticker": r.get("Ticker"), "stage": r.get("Rec_Stage"),
+                      "stars": r.get("Rec_Stars"),
+                      "price": r.get("Current Price")} for r in recovery],
+        "econ_headlines": [{"when": h.get("when"), "title": h.get("title"),
+                            "tags": h.get("tags"), "url": h.get("url")}
+                           for h in econ_headlines],
+        "portfolio": {"totals": pf_totals, "allocation": pf_alloc,
+                     "alerts": alerts[:15]},
+    }
+
+
+def _safe_report_name(name: str) -> str:
+    """Filename-safe report prefix: alnum only, falls back to 'dashboard'
+    for an empty/all-punctuation input so a bad caller can't produce a
+    filename starting with '_' or nothing at all."""
+    cleaned = "".join(c for c in name if c.isalnum())
+    return cleaned or "dashboard"
+
+
 def generate_dashboard(
     rows: list[dict],
     output_dir: str | Path = ".",
     open_browser: bool = True,
     include_market_pulse: bool = True,
     include_portfolio: bool = True,
+    report_name: str | None = None,
 ) -> str:
     """
     Build a Top-5 HTML dashboard from enriched scan rows.
@@ -1897,6 +1871,10 @@ def generate_dashboard(
     include_market_pulse : fetch the network-dependent market-pulse header
     include_portfolio    : render the Portfolio & Watchlist panel (positions,
                            P&L, allocation) — off gives a market-only dashboard
+    report_name  : filename prefix identifying which scan produced this
+                   dashboard, e.g. "sp500Report", "daytradeReport" — the file
+                   becomes <report_name>_<YYYYMMDD>_<HHMMSS>.html. Defaults
+                   to "dashboard" (the original, universe-agnostic name).
 
     Returns
     -------
@@ -1905,9 +1883,10 @@ def generate_dashboard(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    ts       = datetime.now().strftime("%Y%m%d_%H%M")
+    prefix   = _safe_report_name(report_name) if report_name else "dashboard"
+    ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_time = datetime.now().strftime("%B %d, %Y  %H:%M")
-    filepath = output_dir / f"dashboard_{ts}.html"
+    filepath = output_dir / f"{prefix}_{ts}.html"
 
     # Strategy scores may be missing when a caller passes rows that skipped
     # scan_universe.main() (e.g. saved rows) — compute them here so the
@@ -1923,7 +1902,7 @@ def generate_dashboard(
     # multiplier must be active before any card's sizing line renders.
     # Network-dependent, so a failure just drops the strip, never the dashboard.
     pulse, pulse_html = None, ""
-    econ_news_html = ""
+    econ_headlines, econ_news_html = [], ""
     if include_market_pulse:
         try:
             from stockanalysis.scanners.market_movers import market_pulse
@@ -1932,9 +1911,11 @@ def generate_dashboard(
         except Exception as e:
             print(f"[Dashboard] market pulse unavailable ({e}) — header skipped")
         # Macro headlines panel — rendered directly above the pulse strip
-        # (which carries the Fed/econ calendar outlook)
+        # (which carries the Fed/econ calendar outlook); fetched once here
+        # and reused for snapshot.json below
         try:
-            econ_news_html = _econ_news_html()
+            econ_headlines = _fetch_econ_headlines()
+            econ_news_html = _econ_news_html(econ_headlines)
         except Exception as e:
             print(f"[Dashboard] economic news unavailable ({e}) — skipped")
 
@@ -2034,14 +2015,16 @@ def generate_dashboard(
         print(f"[Dashboard] market summary failed ({e}) — skipped")
         summary_html = ""
     portfolio_html = ""
+    pf_view, pf_totals, pf_alloc = [], {}, {}
     if include_portfolio:
         try:
             from stockanalysis.reporting.portfolio import (
                 load_positions, build_portfolio_view, portfolio_totals,
                 allocation_summary)
             pf_view = build_portfolio_view(load_positions(), rows)
-            portfolio_html = _portfolio_html(pf_view, portfolio_totals(pf_view),
-                                             allocation_summary(pf_view))
+            pf_totals = portfolio_totals(pf_view)
+            pf_alloc = allocation_summary(pf_view)
+            portfolio_html = _portfolio_html(pf_view, pf_totals, pf_alloc)
         except Exception as e:
             print(f"[Dashboard] portfolio panel failed ({e}) — skipped")
 
@@ -2127,6 +2110,18 @@ def generate_dashboard(
 
     filepath.write_text(html, encoding="utf-8")
     print(f"[Dashboard] Saved → {filepath.resolve()}")
+
+    # snapshot.json — structured summary the webapp reads for its homepage,
+    # so it never has to re-run analysis or scrape the HTML. Best-effort:
+    # the HTML dashboard is the source of truth, this is a convenience mirror.
+    try:
+        import json
+        snapshot = build_snapshot(
+            rows, regime, opp, pulse, top_day, top_swing, top_lt,
+            recovery, econ_headlines, pf_view, pf_totals, pf_alloc)
+        (output_dir / "snapshot.json").write_text(json.dumps(snapshot, indent=1))
+    except Exception as e:
+        print(f"[Dashboard] snapshot.json write failed ({e})")
 
     if open_browser:
         webbrowser.open(filepath.resolve().as_uri())

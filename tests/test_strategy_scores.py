@@ -197,6 +197,10 @@ class TestAttach(unittest.TestCase):
         self.assertFalse(err["Investment_Pass"])
         for row in rows:
             self.assertIn("LT_Entry_Timing", row)
+            self.assertIn("Buy_Zone_Score", row)
+            self.assertIn("Buy_Zone_Label", row)
+        # metrics-free row has no factor data at all -> None, not a crash
+        self.assertIsNone(err["Buy_Zone_Score"])
 
 
 if __name__ == "__main__":
