@@ -762,64 +762,103 @@ def _json_safe(value):
     return None
 
 
+# (index_key, row_key) for the curated subset of the scan row that powers the
+# Research Library table. Held as data, not inlined into the entry literal, so
+# the merge below can ask "did this row carry the field at all?" — see
+# _update_research_index for why that distinction matters.
+_INDEX_FIELD_MAP = (
+    ("price",                  "Current Price"),
+    ("market_cap",             "MarketCap"),
+    ("eps_growth",             "EPS_Growth%"),
+    ("week52_low",             "52W Low"),
+    ("week52_high",            "52W High"),
+    ("dist_from_52w_low_pct",  "Pct_From_52W_Low%"),
+    ("days_to_earnings",       "Days_To_Earnings"),
+    ("conv_overall",           "Conv_Overall"),
+    ("conv_stars",             "Conv_Stars"),
+    ("conv_action",            "Conv_Action"),
+    ("investment_score",       "Investment_Score"),
+    ("swing_score",            "Swing_Score"),
+    ("daytrade_score",         "DayTrade_Score"),
+    ("call_score",             "Call_Score"),
+    ("put_score",              "Put_Score"),
+    ("earnings_date",          "EarningsDate"),
+    ("forward_pe",             "Forward_PE"),
+    ("peg_ratio",              "PEG_Ratio"),
+    ("inst_own_pct",           "Inst_Own%"),
+    ("inst_own_chg",           "Inst_Own_Chg"),
+    ("rs_rank",                "RS_Rank"),
+    ("canslim_pass",           "CANSLIM_Pass"),
+    ("s1",                     "S1"),
+    ("r1",                     "R1"),
+    ("key_level_score",        "Key_Level_Score"),
+    ("touches",                "Touches"),
+    ("volume_confirmation",    "Volume_Confirmation"),
+    ("dist_to_support_pct",    "Dist_to_Support%"),
+    ("dist_to_resistance_pct", "Dist_to_Resistance%"),
+    ("rr_to_resistance",       "RR_to_Resistance"),
+    ("breakout_probability",   "Breakout_Probability"),
+    ("bounce_probability",     "Bounce_Probability"),
+)
+
+# index_key -> (row_key, default) for fields that need _v()'s None-coercion
+_INDEX_COERCED_FIELDS = (
+    ("sector",   "Sector",   "Unknown"),
+    ("category", "Category", None),
+    ("grade",    "Grade",    None),
+)
+
+
 def _update_research_index(output_dir: Path, rows: list[dict],
                            written: set) -> None:
-    """Merge fresh per-ticker entries into the index (existing entries for
-    other tickers are untouched — a 2-ticker refresh doesn't wipe the other
-    102)."""
+    """Merge fresh per-ticker entries into the index.
+
+    Two levels of merge, both needed:
+
+    * Across tickers — entries for tickers not in `rows` are untouched, so a
+      2-ticker refresh doesn't wipe the other 102.
+    * Within a ticker — a field is overwritten only when `row` actually
+      carried its source key. Entries used to be replaced wholesale, so any
+      path producing a lighter row (a watchlist scan, a CSV-reloaded row, a
+      partial refresh) reset ~29 curated fields to None on a ticker that had
+      good values seconds earlier. Values now survive until a real scan or
+      research refresh recomputes that specific ticker.
+
+    Absent-vs-None is the discriminator on purpose. The full pipeline emits
+    every key, sometimes with a legitimate None ("R1": None means no
+    resistance was found), and that None must overwrite. A lighter row omits
+    the key entirely, and that must preserve. Testing `value is None` alone
+    would conflate the two and pin stale levels forever.
+    """
     index = load_research_index(output_dir)
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     for row in rows:
         ticker = row.get("Ticker")
         if ticker not in written:
             continue
-        levels = row.get("_levels") or {}
-        # Every column the scan/research pipeline computed for this ticker
-        # (same fields stock_scan_*.csv has), keyed by original name — powers
-        # the Research Library's "Detailed Metrics" view. The curated fields
-        # below are a renamed subset of this same data for the table.
-        raw = {k: v for k, v in row.items() if not k.startswith("_")}
-        entry = {
-            "ticker": ticker, "sector": _v(row, "Sector", "Unknown"),
-            "category": _v(row, "Category"), "grade": _v(row, "Grade"),
-            "price": row.get("Current Price"),
-            "market_cap": row.get("MarketCap"),
-            "eps_growth": row.get("EPS_Growth%"),
-            "week52_low": row.get("52W Low"),
-            "week52_high": row.get("52W High"),
-            "dist_from_52w_low_pct": row.get("Pct_From_52W_Low%"),
-            "days_to_earnings": row.get("Days_To_Earnings"),
-            "conv_overall": row.get("Conv_Overall"),
-            "conv_stars": row.get("Conv_Stars"),
-            "conv_action": row.get("Conv_Action"),
-            "investment_score": row.get("Investment_Score"),
-            "swing_score": row.get("Swing_Score"),
-            "daytrade_score": row.get("DayTrade_Score"),
-            "call_score": row.get("Call_Score"),
-            "put_score": row.get("Put_Score"),
-            "earnings_date": row.get("EarningsDate"),
-            "forward_pe": row.get("Forward_PE"),
-            "peg_ratio": row.get("PEG_Ratio"),
-            "inst_own_pct": row.get("Inst_Own%"),
-            "inst_own_chg": row.get("Inst_Own_Chg"),
-            "rs_rank": row.get("RS_Rank"),
-            "canslim_pass": row.get("CANSLIM_Pass"),
-            "entry_zone": levels.get("entry"),
-            "stop_level": levels.get("stop"),
-            "s1": row.get("S1"),
-            "r1": row.get("R1"),
-            "key_level_score": row.get("Key_Level_Score"),
-            "touches": row.get("Touches"),
-            "volume_confirmation": row.get("Volume_Confirmation"),
-            "dist_to_support_pct": row.get("Dist_to_Support%"),
-            "dist_to_resistance_pct": row.get("Dist_to_Resistance%"),
-            "rr_to_resistance": row.get("RR_to_Resistance"),
-            "breakout_probability": row.get("Breakout_Probability"),
-            "bounce_probability": row.get("Bounce_Probability"),
-            "updated_at": stamp,
-            "news_updated_at": index.get(ticker, {}).get("news_updated_at"),
-            "raw": raw,
-        }
+        prev = index.get(ticker) or {}
+
+        fresh = {ik: row.get(rk) for ik, rk in _INDEX_FIELD_MAP if rk in row}
+        fresh.update({ik: _v(row, rk, dflt)
+                      for ik, rk, dflt in _INDEX_COERCED_FIELDS if rk in row})
+        # One row key ("_levels") feeds two index fields.
+        if "_levels" in row:
+            levels = row.get("_levels") or {}
+            fresh["entry_zone"] = levels.get("entry")
+            fresh["stop_level"] = levels.get("stop")
+
+        # Every column the pipeline computed for this ticker (same fields
+        # stock_scan_*.csv has), keyed by original name — powers the Research
+        # Library's "Detailed Metrics" view. Merged key-by-key for the same
+        # reason as the curated fields above.
+        raw = {**(prev.get("raw") or {}),
+               **{k: v for k, v in row.items() if not k.startswith("_")}}
+
+        # prev first so anything this row didn't carry survives — including
+        # keys written by other jobs, e.g. news_updated_at from
+        # bump_news_timestamp(), which no longer needs restoring by hand.
+        entry = {**prev, **fresh,
+                 "ticker": ticker, "updated_at": stamp, "raw": raw}
         # One sweep sanitizes both the curated fields and "raw" (json_safe
         # recurses into dicts) — the pipeline's row values (numpy scalars,
         # pandas Timestamps) aren't pre-cleaned the way a CSV round-trip
@@ -852,7 +891,65 @@ def bump_news_timestamp(tickers: set, output_dir: str | Path | None = None) -> N
 DEFAULT_WATCHLISTS = ("AI", "Dividend", "Swing", "Breakout", "Earnings")
 
 
-def load_watchlists() -> dict:
+# Parents whose sublists are stored nested on disk:
+#     {"AI": {"_tickers": [...], "Power": [...], "Optics": [...]}}
+# while every consumer keeps seeing the flat shape it always has:
+#     {"AI": [...], "AI: Power": [...], "AI: Optics": [...]}
+# Nesting is a file-layout concern only — scanners, the backtest engine,
+# watchlist alerts and both UIs all read the flat view. Add a name here and
+# its "Parent: Child" lists fold up on the next save.
+NESTED_PARENTS = ("AI",)
+SUBLIST_SEP = ": "
+_OWN_TICKERS_KEY = "_tickers"   # a nested parent's own (non-child) tickers
+
+
+def _flatten_watchlists(nested: dict) -> dict:
+    """Nested file shape -> the flat {name: [tickers]} every consumer expects.
+
+    A parent contributes its own list under its bare name, so ticking "AI"
+    still scans exactly the tickers in "AI" — children are separate lists,
+    never rolled up.
+    """
+    flat: dict[str, list] = {}
+    for name, val in nested.items():
+        if isinstance(val, dict):
+            flat[name] = list(val.get(_OWN_TICKERS_KEY) or [])
+            for child, tickers in val.items():
+                if child == _OWN_TICKERS_KEY:
+                    continue
+                flat[f"{name}{SUBLIST_SEP}{child}"] = list(tickers or [])
+        else:
+            flat[name] = list(val or [])
+    return flat
+
+
+def _nest_watchlists(flat: dict) -> dict:
+    """Inverse of _flatten_watchlists. Only NESTED_PARENTS fold up, so
+    unrelated colon names ("Sector: Technology") stay top-level."""
+    nested: dict = {}
+    for name, tickers in flat.items():
+        if isinstance(tickers, dict):        # already nested — pass through
+            nested[name] = tickers
+            continue
+        parent, sep, child = name.partition(SUBLIST_SEP)
+        if sep and parent in NESTED_PARENTS:
+            grp = nested.setdefault(parent, {})
+            if not isinstance(grp, dict):    # parent's own list arrived first
+                grp = nested[parent] = {_OWN_TICKERS_KEY: grp}
+            grp[child] = list(tickers or [])
+        elif name in NESTED_PARENTS:
+            grp = nested.get(name)
+            if isinstance(grp, dict):        # children arrived first
+                grp[_OWN_TICKERS_KEY] = list(tickers or [])
+            else:
+                nested[name] = {_OWN_TICKERS_KEY: list(tickers or [])}
+        else:
+            nested[name] = list(tickers or [])
+    return nested
+
+
+def load_watchlists_nested() -> dict:
+    """Raw file contents, nesting intact — for UIs that render the tree."""
     f = PROJECT_DATA_DIR / WATCHLISTS_FILENAME
     if not f.exists():
         return {name: [] for name in DEFAULT_WATCHLISTS}
@@ -864,11 +961,20 @@ def load_watchlists() -> dict:
         return {name: [] for name in DEFAULT_WATCHLISTS}
 
 
+def load_watchlists() -> dict:
+    """Flat {name: [tickers]} view of data/watchlists.json, with nested
+    sublists surfaced as "Parent: Child" keys."""
+    return _flatten_watchlists(load_watchlists_nested())
+
+
 def save_watchlists(watchlists: dict) -> None:
+    """Persist a flat dict (what load_watchlists() returns), re-nesting
+    NESTED_PARENTS on the way to disk. Passing an already-nested dict is
+    also safe — dict values pass through untouched."""
     import json
     PROJECT_DATA_DIR.mkdir(parents=True, exist_ok=True)
     (PROJECT_DATA_DIR / WATCHLISTS_FILENAME).write_text(
-        json.dumps(watchlists, indent=1))
+        json.dumps(_nest_watchlists(watchlists), indent=1))
 
 
 def toggle_watchlist(name: str, ticker: str) -> dict:

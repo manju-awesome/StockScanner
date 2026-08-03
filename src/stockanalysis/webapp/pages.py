@@ -752,23 +752,57 @@ def scanner_page() -> tuple[str, str]:
                 f'<div id="scan-progress-label" style="font-size:11px;color:#898781;margin-bottom:4px"></div>'
                 f'{progress_bar(None)}</div>')
 
-    watchlists = _read_json(DATA_DIR / "watchlists.json") or {}
+    # load_watchlists(), not a raw read: watchlists.json nests AI sublists on
+    # disk and this needs the flat "AI: Power" view.
+    from stockanalysis.reporting.research import load_watchlists, SUBLIST_SEP
+    watchlists = load_watchlists()
     builtin_universes = ("daytrade", "watchlist", "longterm", "dividend", "sp500")
     # Expandable per-category ticker browser + editor: a + button per category
     # unfolds its ticker list (chips deep-link into the Research Library);
     # each list supports add / edit / remove via /api/watchlist/toggle. Chips
     # render client-side from UNIVERSE_DATA so edits update in place.
-    univ_names = [u for u in builtin_universes if watchlists.get(u)] + sorted(
-        n for n, t in watchlists.items() if t and n not in builtin_universes)
+    _user_names = sorted(n for n, t in watchlists.items()
+                         if t and n not in builtin_universes)
+
+    def _tree_order(names: list[str]) -> list[str]:
+        """Parent immediately followed by its "Parent: Child" sublists, so
+        the panel reads as a tree instead of scattering children alphabetically
+        (AI, AI: Connectivity, …, then Dividend — not AI, AI: Connectivity,
+        Dividend, … interleaved with unrelated lists)."""
+        parents = [n for n in names if SUBLIST_SEP not in n]
+        out, placed = [], set()
+        for p in parents:
+            out.append(p)
+            placed.add(p)
+            for c in names:
+                if c.startswith(p + SUBLIST_SEP) and c not in placed:
+                    out.append(c)
+                    placed.add(c)
+        out.extend(n for n in names if n not in placed)   # orphan children
+        return out
+
+    univ_names = [u for u in builtin_universes if watchlists.get(u)] \
+        + _tree_order(_user_names)
     universe_data = {n: watchlists.get(n) or [] for n in univ_names}
+    # Rendering hints: indent children, and label them by leaf name only.
+    univ_depth = {n: (1 if SUBLIST_SEP in n else 0) for n in univ_names}
+    univ_label = {n: (n.split(SUBLIST_SEP, 1)[1] if SUBLIST_SEP in n else n)
+                  for n in univ_names}
     # Integrated universe panel: replaces the old <select multiple> — the
     # checkbox picks categories to scan (serializes as name="universe", same
     # as the select did), the + expands the category in place for viewing
     # and add/edit/remove of its tickers.
     def _univ_row(i: int, name: str) -> str:
+        depth = univ_depth.get(name, 0)
+        # children sit under their parent with a tree elbow; the checkbox
+        # still submits the full "AI: Power" name
+        indent = (f'<span style="width:14px;flex-shrink:0;color:#d9d7ce;'
+                  f'font-size:11px;text-align:center">└</span>' if depth else "")
         return (
-            f'<div style="border-top:0.5px solid #f1efea;padding:3px 0">'
+            f'<div style="border-top:0.5px solid #f1efea;padding:3px 0'
+            f'{";padding-left:12px" if depth else ""}">'
             f'<div style="display:flex;gap:6px;align-items:center">'
+            f'{indent}'
             f'<input type="checkbox" name="universe" value="{esc(name)}" '
             f'title="Include {esc(name)} in the scan">'
             f'<button type="button" id="univ-btn-{i}" onclick="toggleUniv({i})" '
@@ -776,7 +810,9 @@ def scanner_page() -> tuple[str, str]:
             f'border-radius:4px;width:18px;height:18px;line-height:1;cursor:pointer;'
             f'font-weight:700;flex-shrink:0;font-size:11px">+</button>'
             f'<b style="font-size:11px;flex:1;min-width:0;overflow:hidden;'
-            f'text-overflow:ellipsis;white-space:nowrap" title="{esc(name)}">{esc(name)}</b>'
+            f'text-overflow:ellipsis;white-space:nowrap'
+            f'{";font-weight:500;color:#4a4945" if depth else ""}" '
+            f'title="{esc(name)}">{esc(univ_label.get(name, name))}</b>'
             f'<span id="univ-count-{i}" style="font-size:10px;color:#898781">'
             f'({len(universe_data[name])})</span></div>'
             f'<div id="univ-wrap-{i}" style="display:none;margin:5px 0 4px 24px">'
@@ -827,6 +863,76 @@ def scanner_page() -> tuple[str, str]:
           · nothing selected = daytrade</span>
       </div>
     </form>"""
+
+    # ── 52-week high/low screen ──────────────────────────────────────────
+    # Rebuilds the 52_week_high / 52_week_low watchlists, which then appear
+    # in the universe panel above — ticking one and running a scan grades it
+    # through get_metrics(), where compute_put_candidate() already runs.
+    from stockanalysis.core.fifty_two_week import (
+        HIGH_LIST_NAME, LOW_LIST_NAME, DEFAULT_SOURCE)
+    src_opts = "".join(
+        f'<option value="{esc(n)}"'
+        + (" selected" if n == DEFAULT_SOURCE[0] else "")
+        + f'>{esc(n)} ({len(universe_data[n])})</option>'
+        for n in univ_names)
+    n_hi, n_lo = (len(watchlists.get(HIGH_LIST_NAME) or []),
+                  len(watchlists.get(LOW_LIST_NAME) or []))
+    lists_state = (
+        f'<div style="font-size:11px;color:#898781;margin-top:6px">'
+        f'current lists · <b>{esc(HIGH_LIST_NAME)}</b> ({n_hi}) · '
+        f'<b>{esc(LOW_LIST_NAME)}</b> ({n_lo})'
+        + ('' if (n_hi or n_lo) else ' — not built yet') + '</div>')
+    form_52w = f"""
+    <form onsubmit="submitJob(event, this, null); return false;"
+          style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <input type="hidden" name="action" value="scan_52_week">
+      <label style="font-size:11px;color:#898781">source universe<br>
+        <select name="universe_52w" style="min-width:170px;font-size:12px">{src_opts}</select></label>
+      <label style="font-size:11px;color:#898781">within % of high<br>
+        <input name="near_high_pct" value="2" style="width:70px"></label>
+      <label style="font-size:11px;color:#898781">within % of low<br>
+        <input name="near_low_pct" value="2" style="width:70px"></label>
+      <button class="btn">Find 52-Week Highs / Lows</button>
+    </form>
+    <div style="font-size:11px;color:#898781;margin-top:6px">
+      rewrites the <b>{esc(HIGH_LIST_NAME)}</b> and <b>{esc(LOW_LIST_NAME)}</b> watchlists
+      · then tick <b>{esc(HIGH_LIST_NAME)}</b> in <i>Run a Scan</i> above to score them —
+      put_candidate grades every scanned name for exhaustion
+      (Put_Score / Put_Candidate / Put_Reason in the scan CSV)</div>
+    {lists_state}"""
+
+    # ── earnings-today screen ────────────────────────────────────────────
+    from stockanalysis.core.earnings_today import LIST_NAME as EARNINGS_LIST
+    from stockanalysis.webapp.api import ALL_UNIVERSES_SENTINEL
+    n_earn = len(watchlists.get(EARNINGS_LIST) or [])
+    # Same picker as the 52-week card, plus an "all watchlists" option so the
+    # sweep-everything default survives a single-select. Sublists are indented
+    # by leaf name, matching the universe panel above.
+    earn_opts = (
+        f'<option value="{ALL_UNIVERSES_SENTINEL}" selected>'
+        f'— all watchlists ({len(watchlists)}) —</option>'
+        + "".join(
+            f'<option value="{esc(n)}">'
+            + ("&nbsp;&nbsp;└ " if univ_depth.get(n) else "")
+            + f'{esc(univ_label.get(n, n))} ({len(universe_data[n])})</option>'
+            for n in univ_names))
+    form_earn = f"""
+    <form onsubmit="submitJob(event, this, null); return false;"
+          style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <input type="hidden" name="action" value="scan_earnings_today">
+      <label style="font-size:11px;color:#898781">source universe<br>
+        <select name="universe_earn" style="min-width:200px;font-size:12px">{earn_opts}</select></label>
+      <label style="font-size:11px;color:#898781">days ahead (0 = today only)<br>
+        <input name="days_ahead" value="0" style="width:70px"></label>
+      <button class="btn">Find Earnings Today</button>
+    </form>
+    <div style="font-size:11px;color:#898781;margin-top:6px">
+      rewrites the <b>{esc(EARNINGS_LIST)}</b> watchlist
+      · tick it in <i>Run a Scan</i> above to grade the reporters
+      · dates only — yfinance carries no reliable before/after-open time</div>
+    <div style="font-size:11px;color:#898781;margin-top:6px">
+      current list · <b>{esc(EARNINGS_LIST)}</b> ({n_earn})
+      {'' if n_earn else ' — not built yet'}</div>"""
 
     csvs = _latest("stock_scan_*.csv", 8)
     csvs = [f for f in csvs if not any(f.stem.endswith(s) for s in
@@ -933,6 +1039,8 @@ def scanner_page() -> tuple[str, str]:
     return (
         card("Scan Pipeline", pipeline, "📡")
         + card("Run a Scan", form, "▶️")
+        + card("52-Week High / Low Screen", form_52w, "🎯")
+        + card("Earnings Today Screen", form_earn, "📅")
         + card("Recent Scan Files", csv_html, "🗂")
     ), extra_js
 
@@ -943,7 +1051,9 @@ def scanner_page() -> tuple[str, str]:
 
 def research_page() -> tuple[str, str]:
     idx = _read_json(OUTPUT_DIR / "research_index.json") or {}
-    watchlists = _read_json(DATA_DIR / "watchlists.json") or {}
+    # flat view — watchlists.json nests AI sublists on disk
+    from stockanalysis.reporting.research import load_watchlists as _load_wl
+    watchlists = _load_wl()
     rows = sorted(idx.values(), key=lambda r: r.get("ticker") or "")
     # market_cap joined the curated index fields later than most — entries
     # written before then only carry it inside "raw", so backfill from there.
@@ -986,10 +1096,38 @@ def research_page() -> tuple[str, str]:
         bz = compute_buy_zone(raw)
         r["buy_zone_score"] = bz["score"]
         r["buy_zone_label"] = bz["label"]
+    # Competitive standing — must run after the market_cap backfill above, and
+    # over the whole row set at once (it's a cross-ticker ranking, not a
+    # per-row score like the ones in the loop).
+    from stockanalysis.core.market_position import attach_peer_positions
+    attach_peer_positions(rows)
     rows_json = json.dumps(rows)
+    from stockanalysis.reporting.research import SUBLIST_SEP as _SEP
     watch_names = sorted(set(list(watchlists.keys()) or []) |
                         {"AI", "Dividend", "Swing", "Breakout", "Earnings"})
-    watch_opts = "".join(f'<option value="{esc(w)}">{esc(w)}</option>' for w in watch_names)
+    # Sublists render inside an <optgroup> for their parent so "AI: Power"
+    # sits under AI instead of alphabetically among unrelated lists. The
+    # option value stays the full name — the filter matches on that.
+    _parents = [w for w in watch_names if _SEP not in w]
+    _children: dict[str, list[str]] = {p: [] for p in _parents}
+    _loose: list[str] = []
+    for w in watch_names:
+        if _SEP not in w:
+            continue
+        parent = w.split(_SEP, 1)[0]
+        (_children[parent] if parent in _children else _loose).append(w)
+
+    def _opt(value: str, label: str) -> str:
+        return f'<option value="{esc(value)}">{esc(label)}</option>'
+
+    watch_opts = ""
+    for p in _parents:
+        watch_opts += _opt(p, p)
+        if _children.get(p):
+            watch_opts += f'<optgroup label="{esc(p)} sublists">' + "".join(
+                _opt(c, "└ " + c.split(_SEP, 1)[1]) for c in _children[p]
+            ) + "</optgroup>"
+    watch_opts += "".join(_opt(c, c) for c in _loose)
 
     if not rows:
         body = card("", empty(
@@ -1006,6 +1144,12 @@ def research_page() -> tuple[str, str]:
         <option value="table">Table view</option>
         <option value="grouped">Grouped by sector</option>
       </select>
+      <button type="button" class="btn secondary" style="font-size:11px"
+              title="Download the rows and columns currently shown, in the same column order"
+              onclick="downloadResearchCsv('visible')">⬇ CSV</button>
+      <button type="button" class="btn secondary" style="font-size:11px"
+              title="Download every research column — visible ones first in table order, then the rest"
+              onclick="downloadResearchCsv('all')">⬇ CSV · all columns</button>
       <div id="colpicker-wrap" style="position:relative">
         <button type="button" class="btn secondary" onclick="toggleColPicker()"
                 style="font-size:11px">Columns (<span id="colcount">…</span>) ▾</button>
@@ -1091,6 +1235,29 @@ def research_page() -> tuple[str, str]:
       ['economic_moat_label', 'Moat', r => r.economic_moat_label != null
         ? `<span style="color:${{r.economic_moat_label === 'Strong signals' ? '#0F6E56' : r.economic_moat_label === 'Moderate signals' ? '#8a6d1a' : '#A32D2D'}};font-weight:600">${{r.economic_moat_label.replace(' signals', '')}} ${{r.economic_moat_passed}}/${{r.economic_moat_total}}</span>`
         : '—'],
+      // Competitive standing. A curated data/market_structure.json entry wins
+      // over the computed rank and is marked with a dot, so a real structural
+      // fact is never confused with "biggest by market cap among names you
+      // track". Tooltip always spells out what the number actually measures.
+      ['market_position', 'Position', r => {{
+        if (r.structure) {{
+          const tip = (r.structure_note || 'from data/market_structure.json')
+            .replace(/"/g, '&quot;');
+          return `<span title="${{tip}}" style="color:#0F6E56;font-weight:600">● ${{r.structure}}</span>`;
+        }}
+        if (r.peer_rank == null) return '—';
+        const color = r.position_tier === 'dominant' ? '#0F6E56'
+                    : r.position_tier === 'duopoly' ? '#0C447C'
+                    : r.position_tier === 'top2' ? '#8a6d1a' : '#898781';
+        const scope = r.peer_group_is_sector ? 'sector' : 'industry';
+        const tip = `#${{r.peer_rank}} of ${{r.peer_count}} tracked ${{scope}} peers `
+                  + `by market cap (${{r.peer_share_pct}}% of peer cap) — `
+                  + `${{r.peer_group}}. Size proxy, not market share.`;
+        const weight = r.position_tier === 'rest' ? '400' : '600';
+        return `<span title="${{tip.replace(/"/g, '&quot;')}}" `
+             + `style="color:${{color}};font-weight:${{weight}}">${{r.position_label}}`
+             + `<span style="color:#898781;font-weight:400"> /${{r.peer_count}}</span></span>`;
+      }}],
       ['financial_health_score', 'Health', r => r.financial_health_score != null
         ? `<span style="color:${{r.financial_health_label === 'Strong' ? '#0F6E56' : r.financial_health_label === 'Moderate' ? '#8a6d1a' : '#A32D2D'}};font-weight:600">${{r.financial_health_label}} ${{r.financial_health_score}}</span>`
         : '—'],
@@ -1155,16 +1322,28 @@ def research_page() -> tuple[str, str]:
     const ALL_COLS = [...CURATED_COLS, ...RAW_COLS];
     const COL_BY_KEY = Object.fromEntries(ALL_COLS.map(c => [c.key, c]));
     const DEFAULT_COLS = ['price', 'market_cap', 'business_quality_score',
-      'economic_moat_label', 'financial_health_score', 'buy_zone_score', 'inst_own_pct',
+      'economic_moat_label', 'market_position', 'financial_health_score',
+      'buy_zone_score', 'inst_own_pct',
       'eps_growth', 'forward_pe', 'category', 'conv_action', 'conv_stars',
       'swing_score', 'daytrade_score', 'call_score', 'put_score',
       'rs_rank', 'canslim_pass', 'entry_zone', 'rr_to_resistance',
       'breakout_probability', 'days_to_earnings', 'updated_at'];
     const COLS_LS_KEY = 'research_visible_cols_v1';
+    // Columns added after this key was first written. A saved selection wins
+    // over DEFAULT_COLS, so without this a newly-shipped default column would
+    // stay invisible to anyone who has ever opened this page. Appending is
+    // gentler than bumping the key, which would discard the user's layout.
+    const COLS_ADDED_SINCE_V1 = ['market_position'];
     let visibleCols = (() => {{
       try {{
         const saved = JSON.parse(localStorage.getItem(COLS_LS_KEY) || 'null');
-        if (Array.isArray(saved) && saved.length) return saved.filter(k => COL_BY_KEY[k]);
+        if (Array.isArray(saved) && saved.length) {{
+          const cols = saved.filter(k => COL_BY_KEY[k]);
+          for (const k of COLS_ADDED_SINCE_V1) {{
+            if (COL_BY_KEY[k] && !cols.includes(k)) cols.push(k);
+          }}
+          return cols;
+        }}
       }} catch (e) {{}}
       return [...DEFAULT_COLS];
     }})();
@@ -1310,17 +1489,22 @@ def research_page() -> tuple[str, str]:
         return (av > bv ? 1 : av < bv ? -1 : 0) * sortDir;
       }});
     }}
-    function renderResearch() {{
-      renderActionTabs();
+    // Search + watchlist + action-tab filtering, shared by the table render
+    // and the CSV export so a download can never drift from what's on screen.
+    function filteredRows() {{
       const q = document.getElementById('rsearch').value.trim().toUpperCase();
-      const view = document.getElementById('rview').value;
       const watchSelected = Array.from(document.getElementById('rwatch').selectedOptions).map(o => o.value);
       const watchTickers = watchSelected.length
         ? new Set(watchSelected.flatMap(w => WATCHLISTS[w] || [])) : null;
-      let rows = RESEARCH_ROWS.filter(r =>
+      return RESEARCH_ROWS.filter(r =>
         (!q || r.ticker.includes(q) || (r.sector || '').toUpperCase().includes(q)) &&
         (!watchTickers || watchTickers.has(r.ticker)) &&
         (!actionFilter || r.conv_action === actionFilter));
+    }}
+    function renderResearch() {{
+      renderActionTabs();
+      const view = document.getElementById('rview').value;
+      let rows = filteredRows();
       document.getElementById('rcount').textContent = rows.length;
       const root = document.getElementById('research-root');
       if (view === 'grouped') {{
@@ -1399,6 +1583,62 @@ def research_page() -> tuple[str, str]:
       sortDir = (sortKey === key) ? -sortDir : 1;
       sortKey = key;
       renderResearch();
+    }}
+
+    // ── CSV export ───────────────────────────────────────────────────────
+    // Columns come from visibleCols, which is exactly what drag-to-reorder
+    // writes, so the file's column order matches the table's. 'all' appends
+    // the unselected columns after the visible ones rather than reordering,
+    // keeping the on-screen order intact at the front. Rows honour the
+    // current search / watchlist / action filter and the active sort.
+    const csvScratch = document.createElement('div');
+    function csvText(html) {{
+      csvScratch.innerHTML = html;
+      const t = (csvScratch.textContent || '').replace(/\\s+/g, ' ').trim();
+      return t === '—' ? '' : t;   // the table's null placeholder
+    }}
+    function csvValue(col, r) {{
+      if (col.key.startsWith('raw:')) {{
+        const v = (r.raw || {{}})[col.key.slice(4)];
+        return v == null ? '' : v;
+      }}
+      // Prefer the stored scalar so numbers land in a spreadsheet as numbers
+      // rather than "$88.19". Composite cells (Moat "Strong 3/4", Position
+      // "#5 /19") have no single field behind them — fall back to the
+      // rendered text, which is what the user sees anyway.
+      const v = r[col.key];
+      if (typeof v === 'number' || typeof v === 'boolean') return v;
+      if (typeof v === 'string' && v !== '') return v;
+      try {{ return csvText(col.cell(r)); }} catch (e) {{ return ''; }}
+    }}
+    function csvEscape(v) {{
+      const s = (v === null || v === undefined) ? '' : String(v);
+      return /[",\\r\\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }}
+    function downloadResearchCsv(mode) {{
+      const keys = mode === 'all'
+        ? [...visibleCols, ...ALL_COLS.map(c => c.key).filter(k => !visibleCols.includes(k))]
+        : [...visibleCols];
+      const cols = keys.map(k => COL_BY_KEY[k]).filter(Boolean);
+      const rows = sortRows(filteredRows());
+      if (!rows.length) {{ toast('Nothing to export — the current filter matches no rows', 'err'); return; }}
+      // Ticker is a sticky column outside visibleCols; without it the export
+      // has no row identity.
+      const header = ['Ticker', ...cols.map(c => c.label)];
+      const lines = [header.map(csvEscape).join(',')];
+      for (const r of rows) {{
+        lines.push([r.ticker, ...cols.map(c => csvValue(c, r))].map(csvEscape).join(','));
+      }}
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '_');
+      const name = `research_${{mode === 'all' ? 'allcols' : 'view'}}_${{stamp}}.csv`;
+      // BOM + CRLF so Excel reads the ★ / ▲ / — glyphs as UTF-8 and splits rows
+      const blob = new Blob(['\\ufeff' + lines.join('\\r\\n')], {{type: 'text/csv;charset=utf-8;'}});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast(`${{rows.length}} row(s) × ${{header.length}} column(s) → ${{name}}`, 'ok');
     }}
     // "Detailed Metrics": every column the scan/research pipeline computed
     // for this ticker (row.raw, same fields stock_scan_*.csv has) merged
@@ -1654,15 +1894,95 @@ def research_page() -> tuple[str, str]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _latest_scan_rows() -> list[dict]:
-    files = _latest("stock_scan_*.csv", 1)
-    files = [f for f in files if not any(f.stem.endswith(s) for s in
-                                         ("_daytrade", "_swing", "_longterm"))]
+    # Take a window of recent scans and *then* drop the per-strategy splits —
+    # the splits are written after the full scan, so filtering a 1-file list
+    # would leave nothing and silently blank out every price on the page.
+    files = [f for f in _latest("stock_scan_*.csv", 8)
+             if not any(f.stem.endswith(s) for s in
+                        ("_daytrade", "_swing", "_longterm"))][:1]
     if not files:
         return []
     import pandas as pd
     df = pd.read_csv(files[0])
     return [{k: (None if pd.isna(v) else v) for k, v in r.items()}
             for _, r in df.iterrows()]
+
+
+def _options_card() -> str:
+    """Open option contracts from data/options_positions.csv (written by the
+    get-portfolio skill). Kept out of the Holdings table on purpose — the
+    equity table's columns (price, alloc %, days held, stop/target) describe a
+    share position, and options need strike/expiry/premium instead."""
+    from stockanalysis.reporting import options_positions as op
+
+    view = op.build_options_view(op.load_options())
+    if not view:
+        return card("Options", empty(
+            "No option positions on file. Ask me to “get portfolio” to pull "
+            "them from Robinhood into data/options_positions.csv."), "🎯")
+
+    totals = op.options_totals(view)
+    gain = totals.get("total_gain")
+    gain_status = "good" if (gain or 0) >= 0 else "bad"
+    summary = f"""
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:16px;margin-bottom:12px">
+      <div><div style="font-size:11px;color:#898781">Open Contracts</div>
+        <div style="font-size:20px;font-weight:650">{totals.get('contracts')}</div></div>
+      <div><div style="font-size:11px;color:#898781">Cost Basis</div>
+        <div style="font-size:20px;font-weight:650">{fmt_money(totals.get('total_cost'), 0)}</div></div>
+      <div><div style="font-size:11px;color:#898781">Market Value</div>
+        <div style="font-size:20px;font-weight:650">{fmt_money(totals.get('total_value'), 0)}</div></div>
+      <div><div style="font-size:11px;color:#898781">Open P&L</div>
+        <div style="font-size:20px;font-weight:650">{badge(fmt_money(gain, 0) if gain is not None else '—', gain_status)}
+        <span style="font-size:11px;color:#898781"> {fmt_pct(totals.get('total_gain_pct'))}</span></div></div>
+      <div><div style="font-size:11px;color:#898781">Expiring ≤{op.EXPIRY_WARN_DAYS}d</div>
+        <div style="font-size:20px;font-weight:650">{totals.get('expiring_soon')}</div></div>
+    </div>"""
+
+    rows = []
+    for o in view:
+        g_pct = o.get("Gain_Pct")
+        g_color = "#0F6E56" if (g_pct or 0) >= 0 else "#A32D2D"
+        dte = o.get("Days_To_Expiry")
+        dte_color = ("#791F1F" if (dte is not None and dte <= 0)
+                     else "#633806" if (dte is not None and dte <= op.EXPIRY_WARN_DAYS)
+                     else "#0b0b0b")
+        alerts = "".join(
+            f'<div style="font-size:10px;color:{"#791F1F" if "⛔" in a else "#633806"}">{esc(a)}</div>'
+            for a in o.get("Alerts") or [])
+        rows.append(f"""
+        <tr>
+          <td><a href="{tv_url(o['Underlying'])}" target="_blank" rel="noopener"><b>{esc(o['Label'])}</b></a></td>
+          <td>{esc(o['Side'])}</td>
+          <td style="text-align:right">{o['Contracts']:g}</td>
+          <td style="text-align:right">{fmt_money(o.get('Avg_Premium'))}</td>
+          <td style="text-align:right">{fmt_money(o.get('Current_Premium'))}</td>
+          <td style="text-align:right">{fmt_money(o.get('Market_Value'), 0)}</td>
+          <td style="text-align:right;color:{g_color}">{fmt_money(o.get('Gain_Dollars'), 0)}</td>
+          <td style="text-align:right;color:{g_color}">{fmt_pct(g_pct) if g_pct is not None else '—'}</td>
+          <td style="text-align:right;color:{dte_color};font-weight:600">{dte if dte is not None else '—'}</td>
+          <td>{esc(o.get('Strategy') or '')}</td>
+          <td>{alerts or '<span style="font-size:10px;color:#0F6E56">✓ clear</span>'}</td>
+        </tr>""")
+
+    # The quote is whatever the last sync captured — this app has no broker
+    # session, so saying when it was taken is the difference between a number
+    # you can act on and one you can't.
+    quoted = [o.get("Quote_At") for o in view if o.get("Quote_At")]
+    freshness = (f"Premiums quoted {esc(max(quoted))} — a snapshot from the last "
+                 f"sync, not live. Ask me to “get portfolio” to refresh."
+                 if quoted else
+                 "No premium quotes yet — ask me to “get portfolio” to fetch them.")
+
+    table = f"""<table><thead><tr>
+      <th>Contract</th><th>Side</th><th style="text-align:right">Contracts</th>
+      <th style="text-align:right">Avg Premium</th><th style="text-align:right">Last Quote</th>
+      <th style="text-align:right">Value</th><th style="text-align:right">Gain $</th>
+      <th style="text-align:right">Gain %</th><th style="text-align:right">DTE</th>
+      <th>Strategy</th><th>Alerts</th></tr></thead>
+      <tbody>{''.join(rows)}</tbody></table>
+      <div style="font-size:10px;color:#898781;margin-top:8px">{freshness}</div>"""
+    return card("Options", summary + table, "🎯")
 
 
 def portfolio_page() -> tuple[str, str]:
@@ -1679,7 +1999,8 @@ def portfolio_page() -> tuple[str, str]:
             "your first one below."), pad="40px")
         body += card("", '<button type="button" class="btn" '
                      'onclick="openPositionModal(null)">+ Add Position</button>', pad="0 18px 18px")
-        return body + _position_modal(), _position_js
+        # Options are a separate file — they can exist before any equity row does.
+        return body + _options_card() + _position_modal(), _position_js
 
     rows = _latest_scan_rows()
     view = build_portfolio_view(positions, rows)
@@ -1688,20 +2009,36 @@ def portfolio_page() -> tuple[str, str]:
 
     gain = totals.get("total_gain")
     gain_status = "good" if (gain or 0) >= 0 else "bad"
+    day = totals.get("total_day")
+    day_status = "good" if (day or 0) >= 0 else "bad"
+
+    def _tile(label, value, sub=""):
+        sub = (f'<span style="font-size:11px;color:#898781"> {sub}</span>'
+               if sub else "")
+        return (f'<div><div style="font-size:11px;color:#898781">{label}</div>'
+                f'<div style="font-size:20px;font-weight:650">{value}{sub}</div></div>')
+
+    stale = totals.get("priced_from_broker") or 0
+    stale_note = (f'<div style="font-size:11px;color:#898781;margin-top:10px">'
+                  f'{stale} of {totals.get("positions")} positions aren\'t in '
+                  f"today's scan — priced from the last broker sync.</div>"
+                  if stale else "")
     summary = f"""
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:16px">
-      <div><div style="font-size:11px;color:#898781">Portfolio Value</div>
-        <div style="font-size:20px;font-weight:650">{fmt_money(totals.get('portfolio_value'), 0)}</div></div>
-      <div><div style="font-size:11px;color:#898781">Total Gain</div>
-        <div style="font-size:20px;font-weight:650">{badge(fmt_money(gain, 0) if gain is not None else '—', gain_status)}
-        <span style="font-size:11px;color:#898781"> {fmt_pct(totals.get('total_gain_pct'))}</span></div></div>
-      <div><div style="font-size:11px;color:#898781">Cash</div>
-        <div style="font-size:20px;font-weight:650">{fmt_money(totals.get('cash'), 0)}</div></div>
-      <div><div style="font-size:11px;color:#898781">At Risk</div>
-        <div style="font-size:20px;font-weight:650">{fmt_money(totals.get('total_risk'), 0)}</div></div>
-      <div><div style="font-size:11px;color:#898781">Positions / Watching</div>
-        <div style="font-size:20px;font-weight:650">{totals.get('positions')} / {totals.get('watching')}</div></div>
-    </div>"""
+      {_tile('Market Value', fmt_money(totals.get('total_value'), 0))}
+      {_tile('Cost Basis', fmt_money(totals.get('total_cost'), 0))}
+      {_tile('Total Gain',
+             badge(fmt_money(gain, 0) if gain is not None else '—', gain_status),
+             fmt_pct(totals.get('total_gain_pct')))}
+      {_tile('Day Change',
+             badge(fmt_money(day, 0) if day is not None else '—', day_status),
+             fmt_pct(totals.get('total_day_pct')))}
+      {_tile('Portfolio Value', fmt_money(totals.get('portfolio_value'), 0))}
+      {_tile('Cash', fmt_money(totals.get('cash'), 0))}
+      {_tile('At Risk', fmt_money(totals.get('total_risk'), 0))}
+      {_tile('Positions / Watching',
+             f"{totals.get('positions')} / {totals.get('watching')}")}
+    </div>{stale_note}"""
 
     def _alloc_bars(pcts):
         if not pcts:
@@ -1722,10 +2059,19 @@ def portfolio_page() -> tuple[str, str]:
                  f'<div style="flex:1;min-width:200px"><div style="font-size:11px;font-weight:600;color:#898781;margin-bottom:4px">SECTOR</div>{_alloc_bars(alloc.get("sectors") or [])}</div>'
                  f'</div>{warn_html}')
 
+    def _signed(val, kind="money"):
+        """Green/red cell for a P&L number; em dash when there's nothing."""
+        if val is None:
+            return '<td style="text-align:right">—</td>'
+        color = "#0F6E56" if val >= 0 else "#A32D2D"
+        txt = fmt_money(val) if kind == "money" else fmt_pct(val)
+        if kind == "money" and val >= 0:
+            txt = "+" + txt
+        return f'<td style="text-align:right;color:{color}">{txt}</td>'
+
     holdings_rows = []
     for p in view:
         g_pct = p.get("Gain_Pct")
-        g_color = "#0F6E56" if (g_pct or 0) >= 0 else "#A32D2D"
         action = p.get("Next_Action", "")
         act_urgent = action.split(" ")[0] in ("EXIT", "TRIM", "REDUCE", "REVIEW")
         alerts = "".join(f'<div style="font-size:10px;color:{"#791F1F" if "⛔" in a else "#633806"}">{esc(a)}</div>'
@@ -1747,37 +2093,78 @@ def portfolio_page() -> tuple[str, str]:
             f'<button type="button" class="btn secondary" style="font-size:10px;padding:2px 8px;color:#791F1F" '
             f'onclick="deletePosition(\'{esc(p["Ticker"])}\')">Delete</button>'
             f'</div>')
+        # Mark prices that came from the broker snapshot instead of the scan —
+        # they're as old as the last sync, and the user should see which.
+        px = fmt_money(p.get("Price"))
+        if p.get("Price_Source") == "broker":
+            px = (f'<span title="From the last broker sync, not today\'s scan" '
+                  f'style="border-bottom:1px dotted #898781">{px}</span>')
         holdings_rows.append(f"""
         <tr style="{'opacity:.6' if p['Is_Watch'] else ''}">
           <td><a href="/research/{p['Ticker']}.html"><b>{p['Ticker']}</b></a></td>
           <td>{esc(p['Strategy'])}</td>
           <td>{esc(p.get('Cap') or '—')}</td>
           <td style="text-align:right">{p['Shares']:g}</td>
-          <td style="text-align:right">{fmt_money(p.get('Price'))}</td>
-          <td style="text-align:right;color:{g_color}">{fmt_pct(g_pct) if g_pct is not None else '—'}</td>
+          <td style="text-align:right">{fmt_money(p.get('Avg_Cost'))}</td>
+          <td style="text-align:right">{px}</td>
+          {_signed(p.get('Day_Dollars'))}
+          {_signed(p.get('Day_Pct'), 'pct')}
+          <td style="text-align:right">{fmt_money(p.get('Cost_Basis'))}</td>
+          <td style="text-align:right;font-weight:600">{fmt_money(p.get('Value'))}</td>
+          {_signed(p.get('Gain_Dollars'))}
+          {_signed(g_pct, 'pct')}
           <td style="text-align:right">{f"{p['Alloc_Pct']:.1f}%" if p.get('Alloc_Pct') is not None else '—'}</td>
           <td style="text-align:right">{p['Days_Held'] if p.get('Days_Held') is not None else '—'}</td>
           <td style="text-align:right">{fmt_money(p.get('Stop'))}</td>
           <td style="text-align:right">{fmt_money(p.get('Target'))}</td>
+          <td style="text-align:right">{fmt_money(p.get('Risk'))}</td>
           <td style="color:{'#791F1F' if act_urgent else '#0b0b0b'};font-weight:600;font-size:11px">{esc(action)}</td>
           <td>{alerts or '<span style="font-size:10px;color:#0F6E56">✓ clear</span>'}</td>
           <td>{row_actions}</td>
         </tr>""")
 
-    holdings = f"""<table><thead><tr>
+    foot = (f'<tfoot><tr style="border-top:2px solid #d9d7ce;font-weight:650">'
+            f'<td colspan="8">TOTAL — {totals.get("positions")} positions</td>'
+            f'<td style="text-align:right">{fmt_money(totals.get("total_cost"))}</td>'
+            f'<td style="text-align:right">{fmt_money(totals.get("total_value"))}</td>'
+            f'{_signed(totals.get("total_gain"))}{_signed(totals.get("total_gain_pct"), "pct")}'
+            f'<td colspan="4"></td>'
+            f'<td style="text-align:right">{fmt_money(totals.get("total_risk"))}</td>'
+            f'<td colspan="3"></td></tr></tfoot>')
+
+    # 20 columns overflow the card on a laptop — scroll the table, not the page
+    holdings = f"""<div style="overflow-x:auto"><table><thead><tr>
       <th>Ticker</th><th>Strategy</th><th>Cap</th><th style="text-align:right">Shares</th>
-      <th style="text-align:right">Price</th><th style="text-align:right">Gain %</th>
+      <th style="text-align:right">Avg Cost</th><th style="text-align:right">Price</th>
+      <th style="text-align:right">Day $</th><th style="text-align:right">Day %</th>
+      <th style="text-align:right">Cost Basis</th><th style="text-align:right">Market Value</th>
+      <th style="text-align:right">Gain $</th><th style="text-align:right">Gain %</th>
       <th style="text-align:right">Alloc %</th><th style="text-align:right">Days Held</th>
       <th style="text-align:right">Stop</th><th style="text-align:right">Target</th>
+      <th style="text-align:right">At Risk</th>
       <th>Next Action</th><th>Alerts</th><th></th></tr></thead>
-      <tbody>{''.join(holdings_rows)}</tbody></table>"""
+      <tbody>{''.join(holdings_rows)}</tbody>{foot}</table></div>"""
+
+    # The risk report renders from the last saved run so the page is instant;
+    # the button below refreshes it as a background job (~1 min of fetching).
+    from stockanalysis.core.portfolio_risk_scores import load_cached
+    from stockanalysis.webapp import risk_view
+    cached = load_cached()
+    run_button = ('<form onsubmit="return submitJob(event, this)" style="display:inline">'
+                  '<input type="hidden" name="action" value="portfolio_risk">'
+                  '<button type="submit" class="btn" style="font-size:11px;padding:4px 10px">'
+                  '🏛 Analyze Portfolio</button></form>')
+    stamp = (f'<span style="font-size:10px;color:#898781;margin-right:10px">'
+             f'last run {esc(cached.get("generated_at", "")[:16])}</span>' if cached else "")
 
     body = (
-        card("Portfolio Summary", summary, "💼")
+        card("Portfolio Summary", summary, "💼", right=stamp + run_button)
         + card("Allocation", alloc_html, "📊")
         + card("Holdings & Watchlist", holdings, "📋",
               right='<button type="button" class="btn" style="font-size:11px;padding:4px 10px" '
                     'onclick="openPositionModal(null)">+ Add Position</button>')
+        + _options_card()
+        + risk_view.render_risk_report(cached)
         + _position_modal()
     )
     extra_js = ("function onJobFinished(j) { setTimeout(() => location.reload(), 1200); }"
@@ -2339,9 +2726,11 @@ def alerts_page() -> tuple[str, str]:
     from stockanalysis.core import alerts as alerts_mod
     from stockanalysis.core.premarket_brief import load_latest_brief
 
-    # priority-sorted feed, minus LOW alerts older than LOW_TTL_HOURS (24h) —
-    # standing low-grade conditions stop cluttering the feed after a day
-    active_alerts = alerts_mod.active_display_alerts()
+    # Newest first, minus LOW alerts older than LOW_TTL_HOURS (24h) — standing
+    # low-grade conditions stop cluttering the feed after a day. The Sort
+    # dropdown below re-orders client-side; this order is the fallback for a
+    # page that loads with JS disabled.
+    active_alerts = alerts_mod.active_display_alerts(sort="newest")
 
     def _toolbar_form(action: str, label: str, primary: bool = False) -> str:
         btn_class = "btn" if primary else "btn secondary"
@@ -2375,6 +2764,11 @@ def alerts_page() -> tuple[str, str]:
             for p in ("CRITICAL", "HIGH", "MEDIUM", "LOW") if p in prio_counts)
         active_html = (
             f'<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">'
+            f'<label style="font-size:11px;color:#898781">Sort</label>'
+            f'<select id="alert-sort" onchange="sortActiveAlerts()" style="font-size:12px">'
+            f'<option value="newest">Newest first</option>'
+            f'<option value="oldest">Oldest first</option>'
+            f'<option value="priority">Priority</option></select>'
             f'<label style="font-size:11px;color:#898781">Priority</label>'
             f'<select id="alert-prio-filter" onchange="onAlertPrioChange()" '
             f'style="font-size:12px">{prio_opts}</select>'
@@ -2442,6 +2836,33 @@ def alerts_page() -> tuple[str, str]:
     function onAlertPrioChange() {
       renderAlertCatOptions();
       filterActiveAlerts();
+    }
+    // Re-orders the cards in place. data-since is an ISO timestamp, which
+    // sorts correctly as a string, so no Date parsing is needed; cards with
+    // no timestamp sort last in either direction rather than jumping to the
+    // top of "newest".
+    const ALERT_PRIO_ORDER = {CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3};
+    function sortActiveAlerts() {
+      const box = document.getElementById('active-alerts-box');
+      const sel = document.getElementById('alert-sort');
+      if (!box || !sel) return;
+      const mode = sel.value;
+      const cards = alertCards();
+      cards.sort((a, b) => {
+        const as = a.dataset.since || '', bs = b.dataset.since || '';
+        if (mode === 'priority') {
+          const ap = ALERT_PRIO_ORDER[a.dataset.priority] ?? 9;
+          const bp = ALERT_PRIO_ORDER[b.dataset.priority] ?? 9;
+          if (ap !== bp) return ap - bp;
+          return bs.localeCompare(as);             // newest first inside a tier
+        }
+        if (!as && !bs) return 0;
+        if (!as) return 1;
+        if (!bs) return -1;
+        return mode === 'oldest' ? as.localeCompare(bs) : bs.localeCompare(as);
+      });
+      cards.forEach(el => box.appendChild(el));
+      box.scrollTop = 0;
     }
     function filterActiveAlerts() {
       const prioSel = document.getElementById('alert-prio-filter');
@@ -2549,10 +2970,38 @@ def alerts_page() -> tuple[str, str]:
     return body, extra_js
 
 
+def _alert_age(since: str | None) -> str:
+    """Relative age for the feed ("just now", "3h ago", "2d ago").
+
+    The absolute timestamp stays on the card too — relative alone is useless
+    when deciding whether an alert predates a position, and absolute alone
+    makes you do date arithmetic to see what's fresh."""
+    if not since:
+        return ""
+    try:
+        delta = datetime.now() - datetime.fromisoformat(since)
+    except (ValueError, TypeError):
+        return ""
+    mins = int(delta.total_seconds() // 60)
+    if mins < 1:
+        return "just now"
+    if mins < 60:
+        return f"{mins}m ago"
+    if mins < 60 * 24:
+        return f"{mins // 60}h ago"
+    return f"{mins // (60 * 24)}d ago"
+
+
 def _alert_card(a: dict) -> str:
     color = {"CRITICAL": "#791F1F", "HIGH": "#8a6d1a", "MEDIUM": "#185FA5", "LOW": "#898781"}.get(a["priority"], "#898781")
+    since = a.get("since") or a.get("created_at") or ""
+    age = _alert_age(since)
+    age_html = (f'<span style="margin-left:auto;font-size:10px;color:#898781;'
+                f'white-space:nowrap" title="{esc(since)}">{esc(age)}</span>'
+                if age else "")
     return f"""
     <div class="alert-card" data-priority="{esc(a["priority"])}" data-category="{esc(a.get("category") or "other")}"
+         data-since="{esc(since)}"
          style="border-left:3px solid {color};padding:8px 14px;margin-bottom:10px">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:3px">
         {badge(a["priority"], _PRIORITY_STATUS.get(a["priority"], "muted"))}
@@ -2561,11 +3010,12 @@ def _alert_card(a: dict) -> str:
                                     f'title="Open in Research Library with all columns" '
                                     f'style="color:inherit">{esc(a["ticker"])}</a> ')
                                   if a.get("ticker") else ''}{esc(a["headline"])}</b>
+        {age_html}
       </div>
       <div style="font-size:12px;color:#444441">Why it matters: {esc(a["why_it_matters"])}</div>
       <div style="font-size:12px;color:#444441">Expected impact: {esc(a["expected_impact"])}</div>
       <div style="font-size:12px;color:#444441">Suggested action: {esc(a["suggested_action"])}</div>
-      <div style="font-size:11px;color:#898781;margin-top:2px">Confidence {a["confidence"]}% · {esc(a["time_sensitivity"])} · since {esc(a["created_at"])}</div>
+      <div style="font-size:11px;color:#898781;margin-top:2px">Confidence {a["confidence"]}% · {esc(a["time_sensitivity"])} · since {esc(since)}</div>
     </div>"""
 
 

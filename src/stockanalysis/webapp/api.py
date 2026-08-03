@@ -18,6 +18,10 @@ OUTPUT_DIR   = PROJECT_ROOT / "data" / "output"
 
 BUILTIN_UNIVERSES = ("daytrade", "watchlist", "longterm", "dividend", "sp500")
 
+# Option value meaning "every list in watchlists.json" — lets a single-select
+# universe picker still express the sweep-everything default.
+ALL_UNIVERSES_SENTINEL = "__all__"
+
 
 def available_universes() -> list[str]:
     """Built-in universes plus every user-curated watchlist (data/watchlists.json)
@@ -170,6 +174,27 @@ def job_ta_analysis(ticker: str, progress: jobstore.Progress) -> str:
             f" · probability {result['probability_score']}%")
 
 
+def job_portfolio_risk(progress: jobstore.Progress) -> str:
+    """Institutional-style risk report over portfolio.csv + options_positions.csv.
+
+    A job rather than an inline request because it makes one batched history
+    download plus a .info call per holding — roughly a minute for a 25-name
+    book, which is well past what a page render should block on. The result
+    is cached to data/output/portfolio_risk.json by the analyzer itself, so
+    the Portfolio page renders the last run immediately and this job only has
+    to refresh it.
+    """
+    from stockanalysis.core.portfolio_risk_scores import analyze_portfolio
+    report = analyze_portfolio(
+        progress_cb=lambda stage, done=None, total=None: progress.stage(stage, done, total))
+    health, risk = report["health"], report["risk"]
+    violations = report["violations"]
+    critical = sum(1 for v in violations if v["severity"] == "critical")
+    return (f'health {health["light"]} {health["score"]:.0f}/100 ({health["band"]}) · '
+            f'risk {risk["score"]:.0f}/100 {risk["band"]} · '
+            f"{len(violations)} limit breaches ({critical} critical)")
+
+
 def job_journal_review(trade_id: str, progress: jobstore.Progress) -> str:
     """Send one journal trade to the AI coach (core.trading_journal) and
     write its feedback back into data/journal_trades.json. Runs as a job
@@ -226,6 +251,56 @@ def job_watchlist_scan(progress: jobstore.Progress) -> str:
     progress.stage("done")
     return (f"{len(new_alerts)} new alert(s) from {len(rows)} ticker(s); "
            f"research library refreshed for {len(written)}")
+
+
+def job_52_week(universes: list[str], near_high: float, near_low: float,
+                progress: jobstore.Progress) -> str:
+    """Refresh the 52_week_high / 52_week_low watchlists from a source
+    universe. Deliberately does NOT run the scan pipeline itself: it only
+    rebuilds the two lists, which then appear in the Scanner's universe
+    panel like any other watchlist. Ticking 52_week_high and running a scan
+    puts those names through get_metrics(), which already calls
+    compute_put_candidate() — so Put_Score/Put_Candidate/Put_Reason land in
+    the scan CSV for exactly the fresh-high names this screen found."""
+    from stockanalysis.core.fifty_two_week import scan_52_week
+
+    res = scan_52_week(
+        universes=universes, near_high_pct=near_high, near_low_pct=near_low,
+        progress_cb=lambda stage, done, total: progress.stage(stage, done, total))
+    progress.stage("done")
+    new_hi = sum(1 for r in res["high_rows"] if r["New_High"])
+    new_lo = sum(1 for r in res["low_rows"] if r["New_Low"])
+    skipped = len(res["skipped"])
+    return (f"{len(res['high'])} at/near 52W high ({new_hi} new today), "
+            f"{len(res['low'])} at/near 52W low ({new_lo} new today) "
+            f"from {res['scanned']} scanned"
+            + (f", {skipped} skipped (no data / <200 bars)" if skipped else "")
+            + f" — as-of {res['asof']}. Lists 52_week_high / 52_week_low "
+              f"updated; tick one in Run a Scan to grade it.")
+
+
+def job_earnings_today(universes: list[str] | None, days_ahead: int,
+                       progress: jobstore.Progress) -> str:
+    """Rebuild the earnings_today watchlist from every list in
+    watchlists.json. Like job_52_week this only builds the list — ticking it
+    in Run a Scan is what puts those names through the normal pipeline."""
+    from stockanalysis.core.earnings_today import scan_earnings_today
+
+    res = scan_earnings_today(
+        universes=universes, days_ahead=days_ahead,
+        progress_cb=lambda stage, done, total: progress.stage(stage, done, total))
+    progress.stage("done")
+    n_today = sum(1 for r in res["rows"] if r["Is_Today"])
+    window = ("today" if not res["days_ahead"]
+              else f"today +{res['days_ahead']}d ({n_today} today)")
+    no_date = len(res["no_date"])
+    scope = ("all watchlists" if universes is None else " + ".join(universes))
+    return (f"{len(res['tickers'])} ticker(s) reporting {window} "
+            f"from {res['scanned']} scanned in {scope}"
+            + (f", {no_date} with no earnings date on file (ETFs, etc.)"
+               if no_date else "")
+            + f" — as-of {res['today']}. List earnings_today updated; "
+              f"tick it in Run a Scan to grade them.")
 
 
 def job_news_scan(progress: jobstore.Progress) -> str:
@@ -398,6 +473,60 @@ def dispatch_run(action: str, form: dict) -> str:
                               lambda p: job_scan(universes, include_pf, p,
                                                  extra_tickers=extra))
 
+    if action == "scan_52_week":
+        universes = form.get("universe_52w") or []
+        if not universes:
+            from stockanalysis.core.fifty_two_week import DEFAULT_SOURCE
+            universes = list(DEFAULT_SOURCE)
+        unknown = [u for u in universes if u not in available_universes()]
+        if unknown:
+            return f"unknown universe(s): {', '.join(unknown)}"
+
+        def _pct(key: str, default: float) -> float | None:
+            """Blank -> default; anything unparseable or negative -> None so
+            the caller can turn it into a user-facing error."""
+            raw = first(key, "").strip()
+            if not raw:
+                return default
+            try:
+                val = float(raw)
+            except ValueError:
+                return None
+            return val if val >= 0 else None
+
+        near_high = _pct("near_high_pct", 2.0)
+        near_low = _pct("near_low_pct", 2.0)
+        if near_high is None or near_low is None:
+            return "thresholds must be non-negative numbers (e.g. 2 for 2%)"
+        return jobstore.start(
+            "scan_52_week", f"52-week high/low screen: {' + '.join(universes)}",
+            lambda p: job_52_week(universes, near_high, near_low, p))
+
+    if action == "scan_earnings_today":
+        raw_days = first("days_ahead", "0").strip() or "0"
+        try:
+            days_ahead = int(raw_days)
+        except ValueError:
+            return "days ahead must be a whole number (0 = today only)"
+        if not 0 <= days_ahead <= 14:
+            return "days ahead must be between 0 and 14"
+
+        # ALL_UNIVERSES_SENTINEL keeps "everything I track" reachable from a
+        # single-select; scan_earnings_today() reads None as "every list".
+        picked = [u for u in (form.get("universe_earn") or [])
+                  if u and u != ALL_UNIVERSES_SENTINEL]
+        universes = picked or None
+        unknown = [u for u in picked if u not in available_universes()]
+        if unknown:
+            return f"unknown universe(s): {', '.join(unknown)}"
+
+        scope = " + ".join(picked) if picked else "all watchlists"
+        label = ("earnings today" if not days_ahead
+                 else f"earnings today +{days_ahead}d")
+        return jobstore.start(
+            "scan_earnings_today", f"{label} screen: {scope}",
+            lambda p: job_earnings_today(universes, days_ahead, p))
+
     if action == "news":
         watchlists = form.get("watchlist") or []
         tickers = watchlist_tickers(watchlists)
@@ -430,6 +559,10 @@ def dispatch_run(action: str, form: dict) -> str:
             return "no ticker given"
         return jobstore.start("ta", f"AI technicals: {ticker}",
                               lambda p: job_ta_analysis(ticker, p))
+
+    if action == "portfolio_risk":
+        return jobstore.start("portfolio_risk", "portfolio risk analysis",
+                              lambda p: job_portfolio_risk(p))
 
     if action == "journal_review":
         trade_id = first("trade_id")
