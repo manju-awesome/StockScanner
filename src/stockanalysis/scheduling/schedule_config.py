@@ -90,6 +90,18 @@ JOB_DEFS: dict[str, dict] = {
         "description": "Checks VIX; when elevated, adds a 30-min put-scan loop for the afternoon.",
         "default": {"enabled": True, "type": "daily", "times": ["11:30"]},
     },
+    "research_premarket": {
+        "label": "Research refresh (pre-market)",
+        "description": "Refresh every research page in the library against pre-open quotes. "
+                       "Same as the Research page's \"Pre-market scan\" button.",
+        "default": {"enabled": False, "type": "daily", "times": ["08:15"]},
+    },
+    "research_postmarket": {
+        "label": "Research refresh (post-market)",
+        "description": "Refresh every research page in the library against post-close quotes. "
+                       "Same as the Research page's \"Post-market scan\" button.",
+        "default": {"enabled": False, "type": "daily", "times": ["16:45"]},
+    },
     "full_close": {
         "label": "Full scan (after close)",
         "description": "All-category scan of the full S&P universe after the close.",

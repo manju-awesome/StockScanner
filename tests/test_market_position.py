@@ -29,16 +29,20 @@ class TestRanking(unittest.TestCase):
         self.assertEqual(pos["A"]["peer_count"], 4)
         self.assertEqual(pos["A"]["peer_share_pct"], 60.0)
 
+    # Tier labels need >= MIN_PEERS_FOR_TIER peers, so these fixtures are
+    # padded out with small names that don't move the concentration maths.
+    TAIL = [("T%d" % i, 1) for i in range(6)]
+
     def test_dominant_when_majority(self):
         pos = MP.compute_peer_positions(
-            group([("A", 60), ("B", 20), ("C", 15), ("D", 5)]))
+            group([("A", 300), ("B", 100), ("C", 60)] + self.TAIL))
         self.assertEqual(pos["A"]["position_tier"], "dominant")
         self.assertEqual(pos["A"]["position_label"], "Dominant")
 
     def test_real_duopoly(self):
         # 45 + 35 = 80% top-2, and the runner-up is substantial
         pos = MP.compute_peer_positions(
-            group([("A", 45), ("B", 35), ("C", 12), ("D", 8)]))
+            group([("A", 450), ("B", 350), ("C", 120), ("D", 74)] + self.TAIL))
         self.assertEqual(pos["A"]["position_tier"], "duopoly")
         self.assertEqual(pos["B"]["position_tier"], "duopoly")
         self.assertEqual(pos["C"]["position_tier"], "rest")
@@ -47,16 +51,33 @@ class TestRanking(unittest.TestCase):
         # regression: MSFT 71% + ORCL 8% cleared the top-2 bar on the giant
         # alone and mislabelled the distant #2 a duopolist
         pos = MP.compute_peer_positions(
-            group([("A", 71), ("B", 8), ("C", 7), ("D", 7), ("E", 7)]))
+            group([("A", 710), ("B", 80), ("C", 70), ("D", 70)] + self.TAIL))
         self.assertEqual(pos["A"]["position_tier"], "dominant")
         self.assertEqual(pos["B"]["position_tier"], "top2")
         self.assertEqual(pos["B"]["position_label"], "#2")
 
-    def test_small_group_gets_no_tier_label(self):
-        # 3 peers is too thin to call concentration
-        pos = MP.compute_peer_positions(group([("A", 80), ("B", 15), ("C", 5)]))
-        self.assertEqual(pos["A"]["position_tier"], "rest")
+    def test_thin_group_gets_a_rank_but_no_tier(self):
+        # regression: APH read "Dominant /5" on a 5-name group, then flipped
+        # between Duopoly and Dominant as peers came and went. A concentration
+        # word over a handful of tracked names describes the sample, not the
+        # market — so below MIN_PEERS_FOR_TIER only the bare rank shows.
+        pos = MP.compute_peer_positions(
+            group([("A", 51), ("B", 32), ("C", 10), ("D", 4), ("E", 3)]))
+        self.assertEqual(pos["A"]["peer_share_pct"], 51.0)   # over the 50% bar
+        self.assertEqual(pos["A"]["position_tier"], "rest")  # ...but too thin
         self.assertEqual(pos["A"]["position_label"], "#1")
+
+    def test_tier_appears_once_the_group_is_deep_enough(self):
+        caps = [("A", 51), ("B", 32), ("C", 10), ("D", 4), ("E", 3)]
+        thin = MP.compute_peer_positions(group(caps))
+        deep = MP.compute_peer_positions(group(caps + self.TAIL))
+        self.assertEqual(thin["A"]["position_tier"], "rest")     # 5 peers
+        self.assertEqual(thin["A"]["position_label"], "#1")
+        # 11 peers: a tier is allowed. The 6 padding names add cap, so A lands
+        # at 48.1% — under the 50% Dominant bar — while A+B reach 78.3% with a
+        # 30.2% runner-up, which is a genuine Duopoly.
+        self.assertEqual(deep["A"]["position_tier"], "duopoly")
+        self.assertEqual(deep["B"]["position_tier"], "duopoly")
 
     def test_groups_are_independent(self):
         rows = group([("A", 60), ("B", 40)], "Widgets") + \
@@ -65,6 +86,30 @@ class TestRanking(unittest.TestCase):
         self.assertEqual(pos["A"]["peer_group"], "Widgets")
         self.assertEqual(pos["X"]["peer_group"], "Gadgets")
         self.assertEqual(pos["A"]["peer_count"], 2)
+
+
+class TestPeerNames(unittest.TestCase):
+    def test_lists_the_other_members_in_rank_order(self):
+        pos = MP.compute_peer_positions(
+            group([("A", 60), ("B", 30), ("C", 10)]))
+        self.assertEqual(pos["A"]["peer_names"], "B, C")
+        self.assertEqual(pos["B"]["peer_names"], "A, C")
+        self.assertEqual(pos["C"]["peer_names"], "A, B")
+
+    def test_excludes_self(self):
+        pos = MP.compute_peer_positions(group([("A", 60), ("B", 30)]))
+        for t, p in pos.items():
+            self.assertNotIn(t, p["peer_names"].split(", "))
+
+    def test_unranked_ticker_has_empty_peer_names(self):
+        pos = MP.compute_peer_positions([entry("A", None, None, "Unknown")])
+        self.assertEqual(pos["A"]["peer_names"], "")
+
+    def test_excludes_peers_with_no_market_cap(self):
+        # an unranked name isn't in the group, so it can't be someone's peer
+        pos = MP.compute_peer_positions(
+            [entry("A", 60, "W"), entry("B", 30, "W"), entry("C", None, "W")])
+        self.assertEqual(pos["A"]["peer_names"], "B")
 
 
 class TestGrouping(unittest.TestCase):

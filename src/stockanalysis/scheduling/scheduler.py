@@ -692,6 +692,33 @@ def job_full_close():
     run("full", tickers=FULL_TICKERS)
 
 
+def _run_research_session(session: str) -> None:
+    """Refresh every research page in the library. Weekday-only — a pre- or
+    post-market refresh on a Saturday would just re-stamp Friday's quotes."""
+    if datetime.now(ET).weekday() >= 5:
+        return
+    from stockanalysis.reporting.research import (
+        load_research_index, refresh_research)
+    from stockanalysis.webapp.api import OUTPUT_DIR
+
+    tickers = sorted(load_research_index(OUTPUT_DIR))
+    if not tickers:
+        log.info("%s research refresh: library is empty — nothing to do", session)
+        return
+    log.info("%s research refresh: %d page(s)", session, len(tickers))
+    written = refresh_research(tickers, output_dir=OUTPUT_DIR,
+                               charts=False, fetch_news=False)
+    log.info("%s research refresh: %d page(s) written", session, len(written))
+
+
+def job_research_premarket():
+    _run_research_session("premarket")
+
+
+def job_research_postmarket():
+    _run_research_session("postmarket")
+
+
 def job_day_session_init():
     """Market open: lock the day's scan universe (live movers + base list)."""
     _initialize_day_session()
@@ -833,6 +860,8 @@ SCHEDULED_JOBS: dict[str, callable] = {
     "daytrade_scans":    job_daytrade_scan,
     "puts_midday":       job_puts_midday,
     "vix_adaptive_puts": job_vix_adaptive_puts,
+    "research_premarket":  job_research_premarket,
+    "research_postmarket": job_research_postmarket,
     "full_close":        job_full_close,
     "friday_scan":       job_friday_scan,
     "nightly_cleanup":   job_nightly_cleanup,

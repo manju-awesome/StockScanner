@@ -754,7 +754,9 @@ def scanner_page() -> tuple[str, str]:
 
     # load_watchlists(), not a raw read: watchlists.json nests AI sublists on
     # disk and this needs the flat "AI: Power" view.
-    from stockanalysis.reporting.research import load_watchlists, SUBLIST_SEP
+    from stockanalysis.reporting.research import (
+        load_watchlists, tree_ordered_names, SUBLIST_SEP)
+    from stockanalysis.webapp.api import ALL_UNIVERSES_SENTINEL
     watchlists = load_watchlists()
     builtin_universes = ("daytrade", "watchlist", "longterm", "dividend", "sp500")
     # Expandable per-category ticker browser + editor: a + button per category
@@ -764,25 +766,10 @@ def scanner_page() -> tuple[str, str]:
     _user_names = sorted(n for n, t in watchlists.items()
                          if t and n not in builtin_universes)
 
-    def _tree_order(names: list[str]) -> list[str]:
-        """Parent immediately followed by its "Parent: Child" sublists, so
-        the panel reads as a tree instead of scattering children alphabetically
-        (AI, AI: Connectivity, …, then Dividend — not AI, AI: Connectivity,
-        Dividend, … interleaved with unrelated lists)."""
-        parents = [n for n in names if SUBLIST_SEP not in n]
-        out, placed = [], set()
-        for p in parents:
-            out.append(p)
-            placed.add(p)
-            for c in names:
-                if c.startswith(p + SUBLIST_SEP) and c not in placed:
-                    out.append(c)
-                    placed.add(c)
-        out.extend(n for n in names if n not in placed)   # orphan children
-        return out
-
+    # tree order: parent immediately followed by its "Parent: Child" sublists,
+    # instead of children scattering alphabetically among unrelated lists
     univ_names = [u for u in builtin_universes if watchlists.get(u)] \
-        + _tree_order(_user_names)
+        + tree_ordered_names(_user_names)
     universe_data = {n: watchlists.get(n) or [] for n in univ_names}
     # Rendering hints: indent children, and label them by leaf name only.
     univ_depth = {n: (1 if SUBLIST_SEP in n else 0) for n in univ_names}
@@ -829,8 +816,23 @@ def scanner_page() -> tuple[str, str]:
         return (f'<div style="font-size:9px;font-weight:700;color:#898781;'
                 f'text-transform:uppercase;letter-spacing:.4px;padding:5px 0 2px">{label}</div>')
 
+    # One checkbox for "everything I track" — the backend expands the
+    # sentinel (api.expand_all), so it can't drift from the category list
+    # the way a client-side tick-them-all would. No +/expand button: there's
+    # no single list behind it.
+    _all_n = len({t for v in watchlists.values() for t in (v or [])})
+    all_row = (
+        f'<div style="border-top:0.5px solid #f1efea;padding:3px 0">'
+        f'<div style="display:flex;gap:6px;align-items:center">'
+        f'<input type="checkbox" name="universe" value="{ALL_UNIVERSES_SENTINEL}" '
+        f'title="Scan every ticker across all watchlists">'
+        f'<span style="width:18px;flex-shrink:0"></span>'
+        f'<b style="font-size:11px;flex:1">ALL tickers</b>'
+        f'<span style="font-size:10px;color:#898781">({_all_n})</span>'
+        f'</div></div>')
+
     n_builtin = sum(1 for n in univ_names if n in builtin_universes)
-    panel_rows = _univ_header("Built-in") + "".join(
+    panel_rows = all_row + _univ_header("Built-in") + "".join(
         _univ_row(i, name) for i, name in enumerate(univ_names[:n_builtin]))
     if len(univ_names) > n_builtin:
         panel_rows += _univ_header("Watchlists") + "".join(
@@ -1144,6 +1146,18 @@ def research_page() -> tuple[str, str]:
         <option value="table">Table view</option>
         <option value="grouped">Grouped by sector</option>
       </select>
+      <form style="display:contents" onsubmit="submitJob(event, this, null); return false;">
+        <input type="hidden" name="action" value="research_session">
+        <input type="hidden" name="session" value="premarket">
+        <button class="btn secondary" style="font-size:11px"
+                title="Refresh every research page in the library against pre-open quotes">☀ Pre-market scan</button>
+      </form>
+      <form style="display:contents" onsubmit="submitJob(event, this, null); return false;">
+        <input type="hidden" name="action" value="research_session">
+        <input type="hidden" name="session" value="postmarket">
+        <button class="btn secondary" style="font-size:11px"
+                title="Refresh every research page in the library against post-close quotes">🌙 Post-market scan</button>
+      </form>
       <button type="button" class="btn secondary" style="font-size:11px"
               title="Download the rows and columns currently shown, in the same column order"
               onclick="downloadResearchCsv('visible')">⬇ CSV</button>
@@ -1649,6 +1663,40 @@ def research_page() -> tuple[str, str]:
       if (typeof v === 'boolean') return v ? '✓' : '✗';
       return String(v);
     }}
+    // Who the Position column ranked this name against. "#1 of 23" is only
+    // interpretable once the 23 are visible, so the peer group is rendered
+    // ahead of the raw field dump, in rank order with this ticker marked.
+    function peerBlockHtml(row) {{
+      if (!row.peer_group) return '';
+      const peers = RESEARCH_ROWS
+        .filter(r => r.peer_group === row.peer_group && r.peer_rank != null)
+        .sort((a, b) => a.peer_rank - b.peer_rank);
+      const scope = row.peer_group_is_sector ? 'sector' : 'industry';
+      if (!peers.length) {{
+        return `<div style="margin-bottom:12px;font-size:12px;color:#898781">
+          <b>${{row.peer_group}}</b> (${{scope}}) — no tracked peer has a market cap yet,
+          so no rank could be computed.</div>`;
+      }}
+      const rows = peers.map(p => {{
+        const me = p.ticker === row.ticker;
+        return `<tr style="${{me ? 'background:#E6F1FB' : ''}}">
+          <td style="color:#898781;padding:2px 10px 2px 0;white-space:nowrap">#${{p.peer_rank}}</td>
+          <td style="padding:2px 10px 2px 0;white-space:nowrap">${{me
+              ? `<b>${{p.ticker}}</b>`
+              : `<a href="/research/${{p.ticker}}.html">${{p.ticker}}</a>`}}</td>
+          <td style="padding:2px 10px 2px 0;color:#898781;white-space:nowrap">${{fmtCap(p.market_cap)}}</td>
+          <td style="padding:2px 0;color:#898781;white-space:nowrap">${{p.peer_share_pct != null ? p.peer_share_pct + '%' : '—'}}</td>
+        </tr>`;
+      }}).join('');
+      const struct = row.structure
+        ? ` · curated: <b style="color:#0F6E56">${{row.structure}}</b>` : '';
+      return `<div style="margin-bottom:14px;border:1px solid #e1e0d9;border-radius:8px;padding:10px 12px">
+        <div style="font-size:12px;font-weight:700;margin-bottom:2px">Peer group — ${{row.peer_group}}</div>
+        <div style="font-size:11px;color:#898781;margin-bottom:8px">
+          ranked by market cap among ${{peers.length}} tracked ${{scope}} peers${{struct}}
+          · size proxy, not market share</div>
+        <table style="font-size:11px"><tbody>${{rows}}</tbody></table></div>`;
+    }}
     function openDetail(ticker) {{
       const row = RESEARCH_ROWS.find(r => r.ticker === ticker);
       if (!row) return;
@@ -1656,11 +1704,11 @@ def research_page() -> tuple[str, str]:
       const {{ raw, ...curated }} = row;
       const all = {{ ...curated, ...(raw || {{}}) }};
       const keys = Object.keys(all);
-      document.getElementById('detail-body').innerHTML = keys.length
+      document.getElementById('detail-body').innerHTML = peerBlockHtml(row) + (keys.length
         ? `<table style="width:100%"><tbody>${{keys.map(k => `
             <tr><td style="color:#898781;white-space:nowrap;padding-right:14px;vertical-align:top">${{k}}</td>
                 <td style="font-weight:600;word-break:break-word">${{fmtDetailVal(all[k])}}</td></tr>`).join('')}}</tbody></table>`
-        : '<span style="font-size:12px;color:#898781">No detailed metrics captured yet — re-run a scan or research refresh for this ticker.</span>';
+        : '<span style="font-size:12px;color:#898781">No detailed metrics captured yet — re-run a scan or research refresh for this ticker.</span>');
       openModal('modal-detail');
     }}
     // Deep links from alert cards etc.: /research?ticker=NVDA&cols=all

@@ -23,6 +23,20 @@ BUILTIN_UNIVERSES = ("daytrade", "watchlist", "longterm", "dividend", "sp500")
 ALL_UNIVERSES_SENTINEL = "__all__"
 
 
+def expand_all(names: list[str]) -> list[str]:
+    """ALL_UNIVERSES_SENTINEL -> every non-empty list in watchlists.json, so
+    one picker entry can mean "everything I track" without the user
+    Ctrl-clicking 30 options. Order-preserving and deduped; anything already
+    picked alongside ALL is kept, not duplicated. A no-op when the sentinel
+    isn't present."""
+    if ALL_UNIVERSES_SENTINEL not in names:
+        return list(names)
+    from stockanalysis.reporting.research import load_watchlists
+    rest = [n for n in names if n != ALL_UNIVERSES_SENTINEL]
+    every = [n for n, t in load_watchlists().items() if t]
+    return list(dict.fromkeys(every + rest))
+
+
 def available_universes() -> list[str]:
     """Built-in universes plus every user-curated watchlist (data/watchlists.json)
     — lets the Scanner run against e.g. "AI: Networking" the same way it runs
@@ -303,6 +317,38 @@ def job_earnings_today(universes: list[str] | None, days_ahead: int,
               f"tick it in Run a Scan to grade them.")
 
 
+def library_tickers() -> list[str]:
+    """Every ticker with a research page — the index is the library, so this
+    is what "all tickers in the research library" means."""
+    from stockanalysis.reporting.research import load_research_index
+    return sorted(load_research_index(OUTPUT_DIR))
+
+
+def job_research_session(session: str, progress: jobstore.Progress) -> str:
+    """Refresh every research page in the library, labelled by session.
+
+    Pre- and post-market runs are the same pipeline on purpose: the scan
+    reads whatever quotes are live when it runs, and that is precisely what
+    makes one a pre-market view and the other a post-close view. Nothing is
+    faked about the session — the label records when it ran, and each page's
+    updated_at carries the timestamp.
+    """
+    from datetime import datetime
+    from stockanalysis.reporting.research import refresh_research
+
+    tickers = library_tickers()
+    if not tickers:
+        raise ValueError("no research pages yet — run a scan first")
+    progress.stage(f"{session}: refreshing {len(tickers)} research page(s)",
+                   0, len(tickers))
+    written = refresh_research(
+        tickers, output_dir=OUTPUT_DIR, charts=False, fetch_news=False,
+        progress_cb=lambda stage, done, total: progress.stage(stage, done, total))
+    progress.stage("done")
+    return (f"{session} scan: refreshed {len(written)} of {len(tickers)} "
+            f"research page(s) at {datetime.now():%H:%M}")
+
+
 def job_news_scan(progress: jobstore.Progress) -> str:
     """On-demand "Scan News Now" for the Breaking News monitor."""
     from stockanalysis.core.news_monitor import scan_news_for_alerts
@@ -430,7 +476,7 @@ def dispatch_run(action: str, form: dict) -> str:
         from stockanalysis.reporting.research import load_watchlists
         lists = load_watchlists()
         tickers, seen = [], set()
-        for name in names:
+        for name in expand_all(names):
             for t in lists.get(name) or []:
                 if t not in seen:
                     seen.add(t)
@@ -456,7 +502,7 @@ def dispatch_run(action: str, form: dict) -> str:
                               lambda p: job_research(tickers, p))
 
     if action == "scan":
-        universes = form.get("universe") or []
+        universes = expand_all(form.get("universe") or [])
         raw = first("tickers")
         extra = [t.strip().upper() for t in raw.replace(",", " ").split() if t.strip()]
         if not universes and not extra:
@@ -501,6 +547,16 @@ def dispatch_run(action: str, form: dict) -> str:
         return jobstore.start(
             "scan_52_week", f"52-week high/low screen: {' + '.join(universes)}",
             lambda p: job_52_week(universes, near_high, near_low, p))
+
+    if action == "research_session":
+        session = first("session", "premarket").strip().lower()
+        if session not in ("premarket", "postmarket"):
+            return "session must be 'premarket' or 'postmarket'"
+        # one jobstore kind for both, so the two can't run concurrently over
+        # the same pages and race each other's index writes
+        return jobstore.start("research_session",
+                              f"{session} scan: all research pages",
+                              lambda p: job_research_session(session, p))
 
     if action == "scan_earnings_today":
         raw_days = first("days_ahead", "0").strip() or "0"

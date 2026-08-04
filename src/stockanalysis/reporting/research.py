@@ -948,6 +948,25 @@ def _nest_watchlists(flat: dict) -> dict:
     return nested
 
 
+def tree_ordered_names(names) -> list[str]:
+    """Order list names so each parent is immediately followed by its
+    "Parent: Child" sublists, instead of children scattering alphabetically
+    among unrelated lists. Used by every watchlist picker in the UI."""
+    names = list(names)
+    parents = [n for n in names if SUBLIST_SEP not in n]
+    out: list[str] = []
+    placed: set[str] = set()
+    for p in parents:
+        out.append(p)
+        placed.add(p)
+        for c in names:
+            if c.startswith(p + SUBLIST_SEP) and c not in placed:
+                out.append(c)
+                placed.add(c)
+    out.extend(n for n in names if n not in placed)   # orphaned children
+    return out
+
+
 def load_watchlists_nested() -> dict:
     """Raw file contents, nesting intact — for UIs that render the tree."""
     f = PROJECT_DATA_DIR / WATCHLISTS_FILENAME

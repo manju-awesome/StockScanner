@@ -25,11 +25,17 @@ OUTPUT_DIR   = PROJECT_ROOT / "data" / "output"
 DATA_DIR     = PROJECT_ROOT / "data"
 
 
-def tv_url(ticker: str) -> str:
+def tv_url(ticker: str, interval: str | None = None) -> str:
     """TradingView chart URL for a ticker. No exchange prefix — TradingView
     resolves it (hardcoding NASDAQ: would break NYSE names); '-' share
-    classes become '.' (yfinance's BRK-B is TradingView's BRK.B)."""
-    return f"https://www.tradingview.com/chart/?symbol={str(ticker).replace('-', '.')}"
+    classes become '.' (yfinance's BRK-B is TradingView's BRK.B).
+
+    `interval` pins the chart timeframe (e.g. "5" for 5-minute). The swing
+    pages leave it off and get the user's default chart; the Day Trade pages
+    pass "5" so the chart you land on matches the timeframe the signal was
+    computed on."""
+    url = f"https://www.tradingview.com/chart/?symbol={str(ticker).replace('-', '.')}"
+    return f"{url}&interval={interval}" if interval else url
 
 NAV = (("dashboard", "/", "🏠", "Dashboard"),
        ("ai-sentiment", "/ai-sentiment", "🤖", "AI Sentiment"),
@@ -38,6 +44,7 @@ NAV = (("dashboard", "/", "🏠", "Dashboard"),
        ("portfolio", "/portfolio", "💼", "Portfolio"),
        ("journal",   "/journal", "📓", "Journal"),
        ("alerts",    "/alerts", "🔔", "Alerts"),
+       ("daytrade",  "/daytrade", "⚡", "Day Trade"),
        ("automation","/automation", "⚙️", "Automation"))
 
 _STATUS = {
@@ -346,24 +353,45 @@ def render_layout(active: str, title: str, body: str,
       <a class="btn secondary" href="/automation" style="text-decoration:none;display:inline-flex;align-items:center">Settings</a>
     """
 
+    # load_watchlists(), not a raw read: watchlists.json nests AI sublists on
+    # disk, so a raw read sees {"AI": {...}} and would both miscount AI (dict
+    # keys, not tickers) and drop every "AI: *" sublist from these pickers.
+    from stockanalysis.webapp.api import ALL_UNIVERSES_SENTINEL
     try:
-        watchlists = json.loads((DATA_DIR / "watchlists.json").read_text())
+        from stockanalysis.reporting.research import (
+            load_watchlists, tree_ordered_names, SUBLIST_SEP)
+        watchlists = load_watchlists()
     except Exception:
-        watchlists = {}
+        watchlists, SUBLIST_SEP = {}, ": "
+        tree_ordered_names = list
     builtin_universes = ("daytrade", "watchlist", "longterm", "dividend", "sp500")
-    universe_opts = '<optgroup label="Built-in">' + "".join(
+
+    def _opt(name: str, tickers) -> str:
+        """Sublists render indented under their parent by leaf name; the
+        value stays the full "AI: Power" the backend resolves."""
+        depth = SUBLIST_SEP in name
+        label = name.split(SUBLIST_SEP, 1)[1] if depth else name
+        pad = "&nbsp;&nbsp;└ " if depth else ""
+        return f'<option value="{esc(name)}">{pad}{esc(label)} ({len(tickers)})</option>'
+
+    # "ALL" sweeps every list rather than making the user ⌘-click 30 options.
+    all_tickers = {t for v in watchlists.values() for t in (v or [])}
+    all_opt = (f'<option value="{ALL_UNIVERSES_SENTINEL}">— ALL tickers '
+               f'({len(all_tickers)}) —</option>')
+
+    user_names = tree_ordered_names(
+        n for n in sorted(watchlists) if watchlists.get(n) and n not in builtin_universes)
+
+    universe_opts = all_opt + '<optgroup label="Built-in">' + "".join(
         f'<option value="{u}">{u}</option>' for u in builtin_universes
     ) + '</optgroup>'
-    if watchlists:
+    if user_names:
         universe_opts += '<optgroup label="Watchlists">' + "".join(
-            f'<option value="{esc(name)}">{esc(name)} ({len(tickers)})</option>'
-            for name, tickers in sorted(watchlists.items())
-            if tickers and name not in builtin_universes
-        ) + '</optgroup>'
+            _opt(n, watchlists[n]) for n in user_names) + '</optgroup>'
 
-    watchlist_opts = "".join(
-        f'<option value="{esc(name)}">{esc(name)} ({len(tickers)})</option>'
-        for name, tickers in sorted(watchlists.items()) if tickers)
+    watchlist_opts = all_opt + "".join(
+        _opt(n, watchlists[n])
+        for n in tree_ordered_names(n for n in sorted(watchlists) if watchlists.get(n)))
 
     modals = f"""
     <dialog id="modal-scan">

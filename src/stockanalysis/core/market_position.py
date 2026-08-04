@@ -43,7 +43,14 @@ DUOPOLY_TOP2_SHARE = 65.0
 DUOPOLY_MIN_SECOND_SHARE = 20.0
 # Concentration labels need a real peer group behind them; below this only a
 # bare "#N of M" rank is reported.
-MIN_PEERS_FOR_TIER = 4
+#
+# Deliberately high. At 4-5 peers a single ticker dropping out swings the
+# leader's share by ~10 points: APH read "Duopoly /6" and then "Dominant /5"
+# on the same day, purely because a peer lost its market cap and left the
+# group — nothing changed at Amphenol. A word like "Dominant" over a handful
+# of tracked names describes the sample, not the market, so small groups get
+# a rank and a visible denominator instead.
+MIN_PEERS_FOR_TIER = 8
 # A rank needs someone to rank against. "#1 of 1" is not a finding — it means
 # nothing else in the library shares this industry — and rendering it next to
 # genuine "#1 of 19" invites reading it as dominance.
@@ -170,6 +177,11 @@ def compute_peer_positions(entries: list[dict] | dict) -> dict[str, dict]:
                                         if top2_share is not None else None),
                 "position_label": label,
                 "position_tier": tier,
+                # Who the rank is actually against — "#1 of 23" is only
+                # interpretable once you can see the 23. Rank order, self
+                # excluded, as a string so it reads straight out of the
+                # Detailed Metrics table.
+                "peer_names": ", ".join(o for o, _ in members if o != t),
             }
 
     out: dict[str, dict] = {}
@@ -178,7 +190,7 @@ def compute_peer_positions(entries: list[dict] | dict) -> dict[str, dict]:
             "peer_group": m["group"], "peer_group_is_sector": m["is_sector"],
             "peer_rank": None, "peer_count": 0, "peer_share_pct": None,
             "peer_top2_share_pct": None, "position_label": None,
-            "position_tier": None,
+            "position_tier": None, "peer_names": "",
         }
         ov = overlay.get(t.upper())
         rec["structure"] = ov["structure"] if ov else None
