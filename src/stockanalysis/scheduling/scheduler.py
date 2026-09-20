@@ -724,6 +724,27 @@ def job_day_session_init():
     _initialize_day_session()
 
 
+# Sector-Leader Scan — no email of its own. It runs ahead of the brief so
+# the brief can cross-reference a snapshot from this morning rather than one
+# from last night, without paying the scan's three-to-five minutes inside a
+# job that other interval jobs are queued behind.
+def job_sector_leaders_scan():
+    if datetime.now(ET).weekday() >= 5:
+        return
+    from stockanalysis.scanners.scan_sector_leaders import scan_and_store
+    try:
+        res = scan_and_store()
+        market = res.get("market") or {}
+        sectors = res.get("sectors") or []
+        bull = sum(1 for x in sectors if x.get("direction") == "bullish")
+        bear = sum(1 for x in sectors if x.get("direction") == "bearish")
+        _log(f"🧭 Sector-leader scan — {market.get('label')} "
+             f"({market.get('score'):+.1f}), {bull} bullish / {bear} bearish "
+             f"of {len(sectors)} groups")
+    except Exception as e:
+        _log(f"Sector-leader scan failed: {e}")
+
+
 # Pre-Market Brief — one composed email; macro/movers/earnings/breakout
 # context already fetched elsewhere, see core/premarket_brief.py for why
 # this isn't a fresh data source.
@@ -732,8 +753,13 @@ def job_premarket_brief():
         return
     from stockanalysis.core.premarket_brief import send_premarket_brief
     try:
-        send_premarket_brief()
-        _log("📰 Pre-market brief sent")
+        brief = send_premarket_brief()
+        conf = (brief or {}).get("confluence") or {}
+        counts = conf.get("counts") or {}
+        _log(f"📰 Pre-market brief + sector leaders sent — "
+             f"{counts.get('aligned', 0)} aligned, "
+             f"{counts.get('conflicts', 0)} conflicting "
+             f"({(brief or {}).get('sector_leaders_note')})")
     except Exception as e:
         _log(f"Pre-market brief failed: {e}")
 
@@ -768,6 +794,30 @@ def job_watchlist_alerts():
         generate_research_pages(rows, REPORTS_DIR, charts=False, fetch_news=False)
     except Exception as e:
         _log(f"Research library refresh failed: {e}")
+
+
+def job_longterm_entry_alerts():
+    """Fire when price reaches a level the Long-Term engine planned to buy.
+
+    Reads the plans from the research library (entry levels are moving
+    averages and shelves — they move a fraction of a percent a day) and
+    fetches live prices for only the names carrying a resting order. See
+    core.longterm.entry_alerts for why the two halves need different
+    freshness. Market-hours guarded like the other monitors: a level
+    "reached" on a stale after-hours print is not an order to work.
+    """
+    now = datetime.now(ET)
+    if now.weekday() >= 5 or not ((9, 30) <= (now.hour, now.minute) <= (16, 0)):
+        return
+    from stockanalysis.core.longterm import entry_alerts as EA
+    from stockanalysis.webapp import api
+    try:
+        new_alerts = EA.scan_for_alerts(api.longterm()["rows"])
+        if new_alerts:
+            _log(f"🎯 {len(new_alerts)} entry level(s) reached: "
+                 + ", ".join(a["ticker"] or "?" for a in new_alerts))
+    except Exception as e:
+        _log(f"Long-term entry alert scan failed: {e}")
 
 
 def job_news_alerts():
@@ -851,8 +901,12 @@ def job_nightly_cleanup():
 # live in schedule_config.py; this maps them to the code to run.
 SCHEDULED_JOBS: dict[str, callable] = {
     "earnings_alerts":   job_earnings_alerts,
+    # Ahead of premarket_brief by dict order as well as by clock, so a shared
+    # slot still scans before the brief that reads the scan.
+    "sector_leaders_scan": job_sector_leaders_scan,
     "premarket_brief":   job_premarket_brief,
     "watchlist_alerts":  job_watchlist_alerts,
+    "longterm_entry_alerts": job_longterm_entry_alerts,
     "news_alerts":       job_news_alerts,
     "swing_premarket":   job_swing_premarket,
     "calls_premarket":   job_calls_premarket,
@@ -898,20 +952,98 @@ def reschedule() -> None:
     register_jobs()
 
 
+# ── Login gate ───────────────────────────────────────────────────────────────
+#
+# Off unless the webapp turns it on (app.py does, when it serves with auth),
+# because it is the only context where "signed in" means anything: running
+# scheduler.py standalone, or the webapp with --no-auth, creates no sessions
+# at all, and a gate counting sessions there would pause automation forever
+# instead of gating it.
+LOGIN_GATE = False
+
+
+def set_login_gate(enabled: bool) -> None:
+    """Called by the webapp at startup. A setter rather than a direct import
+    of app.AUTH_ENABLED so this module keeps no dependency on the webapp —
+    scheduler.py still runs on its own."""
+    global LOGIN_GATE
+    LOGIN_GATE = bool(enabled)
+
+
+def automation_allowed() -> tuple[bool, str]:
+    """Whether jobs may fire right now, and why not when they may not.
+
+    Two ways to be allowed: the user has turned off the gate in the schedule
+    config ("keep running when nobody is signed in" — what an always-on
+    deployment wants), or somebody is actually signed in.
+    """
+    if not LOGIN_GATE:
+        return True, ""
+    try:
+        from stockanalysis.scheduling.schedule_config import load_settings
+        if load_settings()["run_when_logged_out"]:
+            return True, ""
+        from stockanalysis.webapp import auth
+        if auth.anyone_signed_in():
+            return True, ""
+    except Exception:
+        # A broken config or an import failure must not silently stop every
+        # scheduled job — fail open and say so, the same way load_config()
+        # falls back to defaults rather than refusing to start.
+        traceback.print_exc()
+        return True, ""
+    return False, "nobody is signed in"
+
+
 def _start_scheduler() -> None:
     """
     Register all scheduled jobs from config and start the blocking loop.
     All times are Eastern Time (ET); jobs carry their own weekday/market-
     hours guards.
+
+    The loop also honours the login gate above: while automation is paused,
+    run_pending() is not called at all, so no job fires. Resuming re-registers
+    the schedule rather than just calling run_pending() again — `schedule`
+    keeps each job's next_run in the past while it is skipped, so a plain
+    resume would fire every missed job back-to-back the moment someone signs
+    in (a 07:00 brief emailed at 15:00, the full close scan on top of it).
+    Re-registering moves every job to its next real occurrence instead: what
+    was missed while nobody was watching stays missed.
     """
     _log("✅ Scheduler started. Jobs registered:")
     register_jobs()
 
     _log("⏳ Waiting for next scheduled job... (Ctrl+C to quit)\n")
 
+    paused = False
     while True:
-        schedule.run_pending()
+        paused = _tick(paused)
         time.sleep(30)   # check every 30 seconds
+
+
+def _tick(paused: bool) -> bool:
+    """One pass of the scheduler loop: run whatever is due, unless automation
+    is paused. Returns the new paused state.
+
+    Split out of the loop so the pause/resume transitions can be tested
+    without a 30-second sleep in the way (tests/test_scheduler_login_gate.py).
+    """
+    allowed, why = automation_allowed()
+    if not allowed:
+        if not paused:
+            _log(f"⏸️  Automation paused — {why}. No jobs will run until the "
+                 f"next sign-in (or until \"keep automation running when "
+                 f"nobody is signed in\" is turned on in Automation → Scheduler).")
+        return True
+
+    if paused:
+        _log("▶️  Automation resumed (signed in) — re-registering jobs at their "
+             "next scheduled time; anything due while paused is skipped, not "
+             "replayed:")
+        schedule.clear()
+        register_jobs()
+    schedule.run_pending()
+    return False
 
 def _start_scheduler_test() -> None:
     from datetime import timedelta

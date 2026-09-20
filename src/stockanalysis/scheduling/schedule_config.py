@@ -19,6 +19,11 @@ JOB_DEFS is the registry of what CAN be scheduled (label/description/
 default trigger, in display order); the JSON file stores the user's
 overrides. Unknown keys in the file are ignored, missing keys fall back
 to defaults — so adding a job here later needs no file migration.
+
+Alongside the per-job specs the same file carries one reserved
+"_settings" block (SETTINGS_DEFS) for switches that belong to the
+schedule as a whole rather than to any one job — today just whether
+automation keeps running when nobody is signed in.
 """
 
 from __future__ import annotations
@@ -39,10 +44,24 @@ JOB_DEFS: dict[str, dict] = {
                        "post-close). Same scan as the Alerts page's \"Check Earnings Now\".",
         "default": {"enabled": True, "type": "daily", "times": ["06:30"]},
     },
+    "sector_leaders_scan": {
+        "label": "Sector-leader scan",
+        "description": "Market → sector → industry → stock scan feeding /leaders. Runs ten "
+                       "minutes AHEAD of the pre-market brief so the brief finds a fresh "
+                       "snapshot and can cross-reference it without doing the three-to-five "
+                       "minute scan inline — the scheduler runs jobs one at a time, and a "
+                       "long job inside the brief delays every interval job behind it. "
+                       "Sends no email of its own; the brief carries the result.",
+        "default": {"enabled": True, "type": "daily", "times": ["06:50", "07:50"]},
+    },
     "premarket_brief": {
-        "label": "Pre-market brief",
-        "description": "Compose and email the morning macro/movers/earnings brief (weekdays). "
-                       "Same as the Alerts page's \"Generate Brief Now\".",
+        "label": "Pre-market brief + sector leaders",
+        "description": "Compose and email the morning macro/movers/earnings brief together "
+                       "with the sector-leader rankings and the confluence between them "
+                       "(weekdays) — ONE email, not two. Same as the Alerts page's "
+                       "\"Generate Brief Now\". If the sector-leader scan has not run "
+                       "recently it is run inline here rather than shipping a brief that "
+                       "silently drops the cross-reference.",
         "default": {"enabled": True, "type": "daily", "times": ["07:00"]},
     },
     "watchlist_alerts": {
@@ -51,6 +70,14 @@ JOB_DEFS: dict[str, dict] = {
                        "hours only (guard inside the job). Same as the Alerts page's "
                        "\"Scan Watchlist Now\".",
         "default": {"enabled": True, "type": "interval", "minutes": 10},
+    },
+    "longterm_entry_alerts": {
+        "label": "Long-term entry monitor",
+        "description": "Alert + its own email (\"Longterm swing trades\") when price comes "
+                       "within 1% of a level the Long-Term Buy Engine planned to buy at; "
+                       "market hours only. Same as the Alerts page's \"Check Entry Levels "
+                       "Now\".",
+        "default": {"enabled": True, "type": "interval", "minutes": 15},
     },
     "news_alerts": {
         "label": "Breaking-news scan",
@@ -194,8 +221,7 @@ def save_job(key: str, raw_spec: dict) -> dict:
     spec = normalize_spec(raw_spec, JOB_DEFS[key]["default"])
     cfg = load_config()
     cfg[key] = spec
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(json.dumps(cfg, indent=1))
+    _write_config(cfg)
     return spec
 
 
@@ -204,3 +230,82 @@ def describe_spec(spec: dict) -> str:
     if spec["type"] == "interval":
         return f"every {spec['minutes']} min"
     return "daily at " + ", ".join(spec["times"]) + " ET"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GLOBAL SETTINGS — schedule-wide switches, not per-job cadence
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Stored in the same JSON file under a reserved "_settings" key rather than a
+# second file, so one save is one write and the Automation page has one place
+# to read. The underscore keeps it out of the job namespace: load_config()
+# walks JOB_DEFS, so a reserved key can never be mistaken for a job, and a
+# future job named "settings" would not collide with it.
+
+SETTINGS_KEY = "_settings"
+
+SETTINGS_DEFS: dict[str, dict] = {
+    "run_when_logged_out": {
+        "label": "Keep automation running when nobody is signed in",
+        "description": "OFF (default): the scheduler pauses as soon as the last session "
+                       "signs out or idles out, and resumes on the next sign-in — nothing "
+                       "scans, emails or writes while the tool is unattended. ON: jobs keep "
+                       "firing regardless of who is signed in, which is what an always-on "
+                       "deployment wants (the pre-market brief has to send at 07:00 whether "
+                       "or not a browser is open). Ignored entirely when the server runs "
+                       "with --no-auth, and when scheduler.py is run standalone: there are "
+                       "no sessions to count in either case, so gating on them would pause "
+                       "automation forever.",
+        "default": False,
+    },
+}
+
+SETTINGS_DEFAULTS = {k: v["default"] for k, v in SETTINGS_DEFS.items()}
+
+
+def _as_bool(value, fallback: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("on", "true", "1", "yes")
+    if value is None:
+        return fallback
+    return bool(value)
+
+
+def load_settings() -> dict:
+    """Global switches: file values merged over SETTINGS_DEFAULTS. Same
+    forgiveness as load_config — a hand-broken file falls back to defaults
+    rather than stopping the scheduler from coming up."""
+    try:
+        saved = json.loads(CONFIG_PATH.read_text())
+    except (OSError, ValueError):
+        saved = {}
+    stored = saved.get(SETTINGS_KEY) if isinstance(saved, dict) else None
+    stored = stored if isinstance(stored, dict) else {}
+    return {key: _as_bool(stored.get(key), default)
+            for key, default in SETTINGS_DEFAULTS.items()}
+
+
+def save_settings(raw: dict) -> dict:
+    """Persist global switches, jobs untouched. Unknown keys are dropped;
+    keys absent from `raw` keep their current value, so a form that posts
+    one toggle cannot silently reset the others."""
+    current = load_settings()
+    updated = {key: _as_bool(raw[key], current[key]) if key in raw else current[key]
+               for key in SETTINGS_DEFAULTS}
+    _write_config(load_config(), updated)
+    return updated
+
+
+def _write_config(cfg: dict[str, dict], settings: dict | None = None) -> None:
+    """Write jobs + settings back as one document.
+
+    Settings are re-read when not passed because cfg carries jobs only: a
+    job save that wrote cfg straight out would drop the settings block, and
+    the symptom — automation quietly reverting to pausing at sign-out after
+    an unrelated cadence edit — is a long way from its cause."""
+    payload = dict(cfg)
+    payload[SETTINGS_KEY] = dict(settings if settings is not None else load_settings())
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(payload, indent=1))

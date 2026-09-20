@@ -1,0 +1,12 @@
+{
+  "_comment": "Ticker -> CUSIP pins for names the automatic resolver refuses. Every entry below was read off the 2026-03-31 information table itself (share-class titles and row counts), not from memory. Add a ticker here when fetch_13f.py reports it ambiguous; it prints the candidates with row counts.",
+
+  "GOOGL": "02079K305",
+  "GOOG":  "02079K107",
+  "FOXA":  "35137L105",
+  "FOX":   "35137L204",
+
+  "STT":   "857477103",
+  "EQR":   "29476L107",
+  "EA":    "285512109"
+}

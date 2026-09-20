@@ -1,0 +1,1102 @@
+# BUILD A 0DTE OPTIONS POSITION-SIZING + PROFIT-TAKING ENGINE
+
+Act as a professional quantitative trading-system developer.
+
+I trade **0DTE options on highly liquid large-cap stocks/index ETFs** such as SPY, QQQ, NVDA, TSLA, AAPL, META, AMZN, MSFT, AMD, etc.
+
+I currently have two major problems:
+
+1. I sometimes take positions that are too large relative to my account/risk.
+2. When a trade becomes a large winner, I keep holding the runner and give back too much profit.
+
+I attempted to use a bell-curve approach, but there is no mechanical system.
+
+Build a **rule-based position sizing, scaling, profit-taking, trailing-stop and risk-management engine** that can be integrated into my existing trading application.
+
+The system must be deterministic and explain every decision.
+
+---
+
+# 1. IMPORTANT DESIGN PRINCIPLE
+
+Do NOT use a normal-distribution/bell-curve model as the primary trading rule.
+
+Instead separate the system into:
+
+ACCOUNT RISK
+→ TRADE RISK
+→ POSITION SIZE
+→ ENTRY
+→ SCALE-IN
+→ PROFIT LADDER
+→ TRAILING STOP
+→ RUNNER MANAGEMENT
+→ DAILY RISK LIMIT
+
+The objective is:
+
+### Protect capital first.
+
+### Capture part of the move second.
+
+### Allow a smaller position to participate in a large runner.
+
+---
+
+# 2. ACCOUNT RISK ENGINE
+
+Create configurable parameters:
+
+ACCOUNT_EQUITY
+MAX_DAILY_LOSS
+MAX_RISK_PER_TRADE
+MAX_TOTAL_OPEN_RISK
+MAX_POSITION_VALUE
+MAX_PREMIUM_EXPOSURE
+
+Default starting parameters should be conservative and configurable.
+
+For example:
+
+MAX_RISK_PER_TRADE = 0.5% of account equity
+
+MAX_DAILY_LOSS = 1.5% of account equity
+
+MAX_TOTAL_OPEN_RISK = 1.0% of account equity
+
+Do NOT hard-code these values.
+
+Allow them to be changed from the settings page.
+
+---
+
+# 3. 0DTE-SPECIFIC RISK
+
+Do not calculate position size only from option premium.
+
+The system must recognize that 0DTE options have:
+
+* High gamma
+* Rapid theta decay
+* Large IV changes
+* Wide percentage movements
+* Potentially nonlinear P&L
+* Fast premium collapse
+* Significant slippage
+
+Therefore position sizing should primarily be based on:
+
+### EXPECTED LOSS AT INVALIDATION
+
+rather than:
+
+### NUMBER OF CONTRACTS
+
+---
+
+# 4. UNDERLYING-BASED STOP
+
+Whenever possible, define the trade invalidation using the UNDERLYING STOCK/ETF.
+
+Examples:
+
+LONG CALL:
+
+Entry underlying = $600
+Invalidation = $597
+
+SHORT PUT / PUT equivalent:
+
+Entry underlying = $600
+Invalidation = $603
+
+The system must calculate the expected option loss if the underlying reaches the invalidation level.
+
+Use option Greeks and/or live option pricing where available:
+
+* Delta
+* Gamma
+* Theta
+* Vega
+* IV
+* Bid
+* Ask
+* Mid
+* Last
+* Underlying price
+
+Do NOT assume the option premium moves linearly with the underlying.
+
+---
+
+# 5. POSITION SIZE CALCULATION
+
+Inputs:
+
+ACCOUNT_EQUITY
+RISK_PER_TRADE
+ENTRY_OPTION_PRICE
+EXPECTED_EXIT_OPTION_PRICE
+STOP_UNDERLYING
+EXPECTED_OPTION_VALUE_AT_STOP
+SLIPPAGE_ALLOWANCE
+CONTRACT_MULTIPLIER
+
+Calculate:
+
+RISK_PER_CONTRACT =
+(entry premium - estimated stop premium)
+× 100
+
+* slippage allowance
+
+Then:
+
+MAX_CONTRACTS =
+allowed trade risk / risk per contract
+
+Always round DOWN.
+
+Never round up.
+
+If MAX_CONTRACTS < 1:
+
+Return:
+
+"TRADE SIZE TOO LARGE FOR ACCOUNT RISK LIMIT"
+
+Do not automatically increase risk just to allow one contract.
+
+---
+
+# 6. POSITION-SIZE CAPS
+
+Even if calculated risk permits a large position, impose additional limits.
+
+Example:
+
+MAX_CONTRACTS_BY_RISK
+MAX_CONTRACTS_BY_PREMIUM
+MAX_CONTRACTS_BY_LIQUIDITY
+MAX_CONTRACTS_BY_SPREAD
+MAX_CONTRACTS_BY_VOLATILITY
+
+Final size:
+
+FINAL_CONTRACTS =
+minimum(
+risk-based size,
+premium-based size,
+liquidity-based size,
+spread-based size,
+volatility-based size
+)
+
+---
+
+# 7. SPREAD PENALTY
+
+Calculate:
+
+SPREAD_PERCENT =
+(ASK - BID) / MID
+
+Create categories:
+
+< 1% = excellent
+1–2% = acceptable
+2–4% = caution
+
+> 4% = poor
+> 7% = avoid
+
+Reduce maximum position size as spreads widen.
+
+If spread is excessively wide:
+
+TRADE = BLOCKED
+
+Do not allow the user to override this accidentally.
+
+---
+
+# 8. LIQUIDITY CHECK
+
+Before entry evaluate:
+
+* Option volume
+* Open interest
+* Bid/ask spread
+* Underlying volume
+* Underlying dollar volume
+* Option price
+* Number of contracts available at bid/ask if available
+
+Create:
+
+EXECUTION_SCORE = 0–100
+
+If execution score is below configurable threshold:
+
+BLOCK TRADE.
+
+---
+
+# 9. ENTRY QUALITY SCORE
+
+Create a separate:
+
+SETUP_SCORE = 0–100
+
+Use configurable components:
+
+MARKET DIRECTION
+TREND
+VWAP
+OPENING RANGE
+RELATIVE VOLUME
+PRICE ACTION
+SUPPORT/RESISTANCE
+MOMENTUM
+CATALYST
+SECTOR STRENGTH
+OPTION LIQUIDITY
+
+Do NOT increase position size solely because setup score is high.
+
+Instead use setup score to determine:
+
+A+ = full planned risk
+A = 75% planned risk
+B = 50%
+C = 25%
+D = no trade
+
+This prevents emotional oversizing.
+
+---
+
+# 10. POSITION SIZE FORMULA
+
+Create:
+
+BASE_RISK =
+ACCOUNT_EQUITY × MAX_RISK_PER_TRADE
+
+Then apply:
+
+SETUP_MULTIPLIER
+LIQUIDITY_MULTIPLIER
+VOLATILITY_MULTIPLIER
+TIME_OF_DAY_MULTIPLIER
+
+Example:
+
+A+ setup = 1.00
+A setup = 0.75
+B setup = 0.50
+C setup = 0.25
+
+But never allow the combined multiplier to exceed 1.0.
+
+The engine must NEVER increase risk above the user's maximum risk limit.
+
+---
+
+# 11. TIME-OF-DAY RISK
+
+0DTE risk changes dramatically throughout the session.
+
+Create separate risk regimes:
+
+### OPEN
+
+First 5 minutes:
+
+Avoid new trades unless explicitly enabled.
+
+### EARLY SESSION
+
+5–30 minutes:
+
+Normal risk.
+
+### MID-MORNING
+
+30–120 minutes:
+
+Normal/reduced risk depending on volatility.
+
+### MIDDAY
+
+Lower risk because of potential chop/theta decay.
+
+### POWER HOUR
+
+Higher opportunity but higher gamma risk.
+
+Do not automatically increase position size simply because volatility is high.
+
+### FINAL 30 MINUTES
+
+Require explicit confirmation.
+
+Do not allow normal position-sizing rules to create oversized late-day 0DTE positions.
+
+---
+
+# 12. INITIAL POSITION
+
+Never enter the maximum position immediately unless explicitly configured.
+
+Default:
+
+INITIAL_POSITION = 50% of maximum calculated position
+
+Example:
+
+Maximum = 10 contracts
+
+Initial = 5
+
+Reserve:
+
+5 contracts for confirmation.
+
+---
+
+# 13. SCALE-IN RULE
+
+Only add to a position when the trade is working.
+
+Never average down simply because the option became cheaper.
+
+Allowed scale-in conditions should include:
+
+* Underlying confirms direction
+* Price holds key level
+* VWAP confirmation
+* Breakout confirmation
+* Higher high / higher low for calls
+* Lower low / lower high for puts
+* Volume confirmation
+* Market confirmation
+
+Example:
+
+Initial = 50%
+
+Add #1 = 25%
+
+Add #2 = 25%
+
+Never exceed the original maximum risk budget.
+
+---
+
+# 14. NEVER SCALE INTO A LOSING TRADE
+
+If:
+
+Current underlying price is moving toward invalidation
+
+OR
+
+Option P&L is deteriorating beyond threshold
+
+THEN:
+
+DISABLE SCALE-IN.
+
+The system should display:
+
+"NO ADD — TRADE IS NOT CONFIRMED"
+
+---
+
+# 15. PROFIT-TAKING ENGINE
+
+This is the most important component for my problem.
+
+I tend to hold runners too long.
+
+Therefore implement a mandatory profit ladder.
+
+Do NOT rely on discretionary decisions.
+
+Use configurable levels such as:
+
++25% option gain
++50%
++75%
++100%
++150%
++200%
+
+At each level, automatically reduce exposure.
+
+Example default:
+
++25% → take 20%
++50% → take another 20%
++75% → take another 20%
++100% → take another 20%
+Remaining 20% → runner
+
+These percentages must be configurable.
+
+---
+
+# 16. PROFIT-BASED RISK RESET
+
+Once a trade reaches a meaningful profit:
+
+The system must stop thinking about the original stop.
+
+Example:
+
+Initial risk = $500
+
+Trade reaches:
+
++$500
+
+At this point:
+
+LOCKED_PROFIT > 0
+
+Move the stop according to the trailing methodology.
+
+The system should prevent:
+
++$500 winner
+→ $0
+→ -$200
+
+unless explicitly configured.
+
+---
+
+# 17. TRAILING STOP ENGINE
+
+Do NOT use a single fixed percentage trailing stop.
+
+Use multiple signals.
+
+For CALLS:
+
+* Underlying VWAP
+* Previous candle low
+* Higher-low structure
+* Opening range
+* ATR
+* EMA
+* Key support
+
+For PUTS:
+
+* VWAP
+* Previous candle high
+* Lower-high structure
+* Opening range
+* ATR
+* EMA
+* Key resistance
+
+The trailing stop should be based primarily on the UNDERLYING rather than the option premium.
+
+---
+
+# 18. RUNNER MANAGEMENT
+
+The runner is the part of the position designed to capture unusually large moves.
+
+Maximum runner allocation:
+
+20–30% of original position.
+
+Example:
+
+10 contracts
+
+After profit ladder:
+
+8 contracts sold
+
+2 contracts remain.
+
+Those 2 contracts are the runner.
+
+The runner must have a mechanical exit.
+
+Possible exit conditions:
+
+* Underlying closes across trailing level
+* VWAP loss
+* Trend reversal
+* Higher-timeframe resistance
+* Momentum divergence
+* Market reversal
+* Time-based exit
+
+---
+
+# 19. RUNNER TIME STOP
+
+Because this is 0DTE, the runner cannot remain open indefinitely.
+
+Create:
+
+RUNNER_TIME_STOP
+
+For example:
+
+If trade has not continued after X minutes:
+
+Reduce or exit runner.
+
+Make this configurable.
+
+The system should become increasingly aggressive about closing positions as expiration approaches.
+
+---
+
+# 20. EXPIRATION SAFETY
+
+Create mandatory expiration rules.
+
+Example:
+
+> 60 minutes before expiration:
+> No new runner positions unless explicitly enabled.
+
+> 30 minutes before expiration:
+> Reduce runner size.
+
+> 15 minutes before expiration:
+> Close remaining position unless a specific high-conviction mode is enabled.
+
+These values must be configurable.
+
+Never allow the system to assume that an option will retain value until expiration.
+
+---
+
+# 21. GIVEBACK PROTECTION
+
+This directly addresses my problem.
+
+Track:
+
+PEAK_UNREALIZED_PNL
+
+CURRENT_UNREALIZED_PNL
+
+PROFIT_GIVEBACK =
+PEAK_UNREALIZED_PNL - CURRENT_UNREALIZED_PNL
+
+Also calculate:
+
+GIVEBACK_PERCENT =
+profit_giveback / peak_unrealized_pnl
+
+Example:
+
+Peak profit = $1,500
+Current profit = $900
+
+Giveback = $600
+Giveback = 40%
+
+If configurable maximum giveback is 25%:
+
+TRIGGER PROFIT PROTECTION.
+
+Automatically:
+
+1. Reduce position
+2. Tighten trailing stop
+3. Disable additional entries
+
+---
+
+# 22. PROFIT STATE MACHINE
+
+Create explicit states:
+
+STATE 0 = NO POSITION
+
+STATE 1 = INITIAL ENTRY
+
+STATE 2 = TRADE CONFIRMED
+
+STATE 3 = PROFITABLE
+
+STATE 4 = PROFIT PROTECTION
+
+STATE 5 = RUNNER
+
+STATE 6 = EXIT
+
+Example:
+
+ENTRY
+↓
++10%
+↓
++25%
+↓
+SELL 20%
+↓
++50%
+↓
+SELL 20%
+↓
++75%
+↓
+SELL 20%
+↓
++100%
+↓
+SELL 20%
+↓
+RUNNER
+↓
+TRAIL
+↓
+EXIT
+
+The position should NEVER jump backward from a protected-profit state into unrestricted risk.
+
+---
+
+# 23. DAILY LOSS PROTECTION
+
+Track:
+
+REALIZED_PNL
+UNREALIZED_PNL
+DAILY_PEAK_PNL
+DAILY_DRAWDOWN
+NUMBER_OF_TRADES
+CONSECUTIVE_LOSSES
+
+If:
+
+Daily loss >= MAX_DAILY_LOSS
+
+then:
+
+BLOCK NEW TRADES.
+
+If:
+
+3 consecutive losses
+
+then:
+
+Reduce risk multiplier.
+
+Example:
+
+3 losses → 50% risk
+4 losses → 25%
+5 losses → trading disabled
+
+Make configurable.
+
+---
+
+# 24. DAILY PROFIT PROTECTION
+
+Also protect profitable days.
+
+Example:
+
+Daily peak = +$2,000
+
+Current daily P&L = +$1,300
+
+Giveback = $700
+
+If maximum daily giveback = 30%:
+
+Activate:
+
+PROFIT_PROTECTION_MODE
+
+Then:
+
+* Reduce position size
+* Disable low-quality setups
+* Tighten trade management
+* Optionally stop trading
+
+This prevents:
+
++$2,000 day
+→ revenge/overtrading
+→ +$200 day
+→ loss.
+
+---
+
+# 25. CORRELATED POSITION RISK
+
+Do not treat:
+
+SPY call
+QQQ call
+NVDA call
+AMD call
+
+as four completely independent trades.
+
+Calculate correlation/exposure.
+
+If multiple positions have the same market direction:
+
+Calculate:
+
+NET_DELTA_EXPOSURE
+
+and
+
+CORRELATED_RISK
+
+Limit total correlated risk.
+
+Example:
+
+SPY CALL + QQQ CALL + NVDA CALL
+
+should consume one combined market-risk budget.
+
+---
+
+# 26. POSITION SIZE DISPLAY
+
+Before every order show:
+
+ACCOUNT EQUITY
+MAX DAILY LOSS
+CURRENT DAILY P&L
+MAX TRADE RISK
+SETUP SCORE
+RISK MULTIPLIER
+OPTION PRICE
+BID
+ASK
+SPREAD %
+STOP UNDERLYING
+EXPECTED LOSS/CONTRACT
+MAX CONTRACTS
+RECOMMENDED CONTRACTS
+INITIAL CONTRACTS
+RESERVED SCALE-IN
+MAX LOSS
+TARGET 1
+TARGET 2
+TARGET 3
+RUNNER SIZE
+
+Example:
+
+ACCOUNT: $100,000
+
+MAX TRADE RISK: $500
+
+SETUP: A
+
+OPTION: $2.50
+
+STOP: Underlying VWAP loss
+
+EXPECTED LOSS/CONTRACT: $125
+
+MAX SIZE: 4 contracts
+
+INITIAL: 2
+
+RESERVE: 2
+
+MAX LOSS: $500
+
+PROFIT LADDER:
++25% → sell 20%
++50% → sell 20%
++75% → sell 20%
++100% → sell 20%
+Runner → 20%
+
+---
+
+# 27. TRADE JOURNAL
+
+For every trade store:
+
+timestamp
+ticker
+option_symbol
+expiration
+strike
+call_put
+entry_price
+entry_underlying
+entry_time
+initial_contracts
+maximum_contracts
+setup_score
+risk_score
+stop_underlying
+target_levels
+scale_ins
+scale_outs
+peak_pnl
+exit_pnl
+maximum_drawdown
+maximum_favorable_excursion
+maximum_adverse_excursion
+holding_time
+exit_reason
+runner_exit_reason
+daily_pnl_at_entry
+daily_pnl_at_exit
+
+---
+
+# 28. PERFORMANCE ANALYTICS
+
+After sufficient historical trades, calculate:
+
+Win rate
+Average winner
+Average loser
+Profit factor
+Expectancy
+Average R
+Median R
+Maximum drawdown
+Maximum favorable excursion
+Maximum adverse excursion
+Average holding time
+Runner contribution
+Profit giveback
+Best time of day
+Worst time of day
+Best ticker
+Worst ticker
+Best setup
+Worst setup
+
+Most importantly:
+
+### Compare
+
+WITHOUT PROFIT LADDER
+
+vs.
+
+WITH PROFIT LADDER
+
+and
+
+WITHOUT RUNNER MANAGEMENT
+
+vs.
+
+WITH RUNNER MANAGEMENT
+
+Determine whether the system actually improves expectancy.
+
+---
+
+# 29. DO NOT OPTIMIZE FOR WIN RATE
+
+The system should optimize for:
+
+EXPECTANCY
+
+and
+
+RISK-ADJUSTED RETURN
+
+not simply:
+
+WIN RATE.
+
+A strategy with:
+
+45% win rate
+2.0 average winner
+1.0 average loser
+
+can be superior to:
+
+70% win rate
+0.8 average winner
+1.5 average loser.
+
+---
+
+# 30. CONFIGURATION PANEL
+
+Create a settings panel containing:
+
+Account Equity
+Max Risk / Trade %
+Max Daily Loss %
+Max Open Risk %
+Initial Position %
+Scale-In #1 %
+Scale-In #2 %
+Profit Level #1
+Profit Level #2
+Profit Level #3
+Profit Level #4
+Profit Level #5
+Scale-Out #1 %
+Scale-Out #2 %
+Scale-Out #3 %
+Scale-Out #4 %
+Runner %
+Max Profit Giveback %
+Trailing Stop Method
+Time Stop
+Expiration Safety Window
+Max Spread %
+Minimum Option Volume
+Minimum Open Interest
+Maximum Consecutive Losses
+Risk Reduction After Losses
+
+All values must be configurable without changing code.
+
+---
+
+# 31. UI TRADE MANAGEMENT PANEL
+
+For every active position display a clear state:
+
+🟢 PROFITABLE
+🟡 PROTECT PROFIT
+🔵 RUNNER
+🔴 EXIT
+⚠️ RISK LIMIT
+⛔ TRADING DISABLED
+
+Show:
+
+ENTRY
+CURRENT
+STOP
+TARGET
+PEAK P&L
+CURRENT P&L
+GIVEBACK %
+POSITION SIZE
+REMAINING SIZE
+RUNNER SIZE
+RISK REMAINING
+
+The system should make it visually obvious when I am violating my own rules.
+
+---
+
+# 32. HARD SAFETY RULES
+
+Implement these as non-bypassable safeguards unless explicitly enabled in ADMIN settings:
+
+1. Never exceed max trade risk.
+2. Never exceed max daily loss.
+3. Never average down automatically.
+4. Never increase position because of a losing trade.
+5. Never exceed maximum correlated exposure.
+6. Never allow a runner to have unlimited downside.
+7. Never ignore expiration risk.
+8. Never size based only on option premium.
+9. Never round position size upward.
+10. Never allow a profitable trade to return to unrestricted initial risk.
+11. Disable new trades after daily risk limit is reached.
+12. Log every automated decision.
+
+---
+
+# 33. IMPORTANT: BACKTEST THE MANAGEMENT SYSTEM
+
+Do not simply backtest entries.
+
+Backtest:
+
+ENTRY
++
+POSITION SIZE
++
+SCALE-IN
++
+SCALE-OUT
++
+TRAILING STOP
++
+RUNNER
++
+TIME STOP
++
+GIVEBACK PROTECTION
+
+Compare multiple configurations.
+
+Find the configuration that maximizes:
+
+EXPECTANCY / MAX DRAWDOWN
+
+rather than the configuration with the highest raw return.
+
+---
+
+# 34. FINAL OUTPUT
+
+Build the engine as modular components:
+
+RiskEngine
+PositionSizer
+OptionRiskModel
+EntryEngine
+ScaleInEngine
+ProfitLadder
+TrailingStopEngine
+RunnerEngine
+GivebackProtection
+DailyRiskManager
+CorrelationRiskEngine
+TradeJournal
+PerformanceAnalyzer
+
+Each component must have:
+
+* Clear inputs
+* Clear outputs
+* Unit tests
+* Error handling
+* Logging
+* Configurable parameters
+
+Do not hard-code trading assumptions.
+
+The final architecture should allow me to replace the profit ladder, stop methodology, and risk percentages without rewriting the entire application.
+
+Most importantly:
+
+### The system should remove discretionary decisions from position sizing and profit-taking.
+
+I should know BEFORE entering:
+
+"How many contracts can I trade?"
+
+And after entering:
+
+"At what exact price/P&L does the system force me to reduce risk?"
+
+And when the trade becomes a large winner:
+
+"How much of the position am I allowed to keep as a runner, and exactly what causes that runner to exit?"

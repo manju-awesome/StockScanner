@@ -1,0 +1,299 @@
+[
+  {
+    "name": "AI Leaders",
+    "icon": "\u2b50",
+    "sort": "match",
+    "rules": {
+      "op": "AND",
+      "negate": false,
+      "items": [
+        {
+          "field": "quality",
+          "op": "gt",
+          "value": 90,
+          "value2": null,
+          "negate": false,
+          "weight": 1.0
+        },
+        {
+          "field": "moat",
+          "op": "gte",
+          "value": 3,
+          "value2": null,
+          "negate": false,
+          "weight": 1.0
+        },
+        {
+          "field": "eps_growth",
+          "op": "gt",
+          "value": 25,
+          "value2": null,
+          "negate": false,
+          "weight": 1.0
+        },
+        {
+          "field": "rs_rank",
+          "op": "gt",
+          "value": 80,
+          "value2": null,
+          "negate": false,
+          "weight": 1.0
+        }
+      ]
+    }
+  },
+  {
+    "name": "Buy Zone",
+    "icon": "\u2b50",
+    "sort": "match",
+    "rules": {
+      "op": "AND",
+      "negate": false,
+      "items": [
+        {
+          "field": "in_buy_zone",
+          "op": "eq",
+          "value": true,
+          "value2": null,
+          "negate": false,
+          "weight": 1.0
+        },
+        {
+          "field": "above_200ma",
+          "op": "eq",
+          "value": true,
+          "value2": null,
+          "negate": false,
+          "weight": 1.0
+        }
+      ]
+    }
+  },
+  {
+    "name": "Cheap Growth",
+    "icon": "\u2b50",
+    "sort": "composite",
+    "rules": {
+      "op": "AND",
+      "negate": false,
+      "items": [
+        {
+          "field": "forward_pe",
+          "op": "lt",
+          "value": 25,
+          "value2": null,
+          "negate": false,
+          "weight": 1.0
+        },
+        {
+          "field": "eps_growth",
+          "op": "gt",
+          "value": 20,
+          "value2": null,
+          "negate": false,
+          "weight": 1.0
+        },
+        {
+          "field": "quality",
+          "op": "gt",
+          "value": 80,
+          "value2": null,
+          "negate": false,
+          "weight": 1.0
+        }
+      ]
+    }
+  },
+  {
+    "name": "High RS Stocks",
+    "icon": "\u2b50",
+    "sort": "rs",
+    "rules": {
+      "op": "AND",
+      "negate": false,
+      "items": [
+        {
+          "field": "rs_rank",
+          "op": "gt",
+          "value": 90,
+          "value2": null,
+          "negate": false,
+          "weight": 1.0
+        },
+        {
+          "field": "above_200ma",
+          "op": "eq",
+          "value": true,
+          "value2": null,
+          "negate": false,
+          "weight": 1.0
+        }
+      ]
+    }
+  },
+  {
+    "name": "Strong Fundamentals",
+    "icon": "\u2b50",
+    "sort": "quality",
+    "rules": {
+      "op": "AND",
+      "negate": false,
+      "items": [
+        {
+          "field": "quality",
+          "op": "gt",
+          "value": 85,
+          "value2": null,
+          "negate": false,
+          "weight": 1.0
+        },
+        {
+          "field": "health",
+          "op": "gt",
+          "value": 80,
+          "value2": null,
+          "negate": false,
+          "weight": 1.0
+        },
+        {
+          "field": "moat",
+          "op": "gte",
+          "value": 3,
+          "value2": null,
+          "negate": false,
+          "weight": 1.0
+        }
+      ]
+    }
+  },
+  {
+    "name": "Swing Ready",
+    "icon": "\u2b50",
+    "sort": "match",
+    "rules": {
+      "op": "AND",
+      "negate": false,
+      "items": [
+        {
+          "field": "swing_score",
+          "op": "gt",
+          "value": 75,
+          "value2": null,
+          "negate": false,
+          "weight": 1.0
+        },
+        {
+          "field": "abs_vs_8ema",
+          "op": "within",
+          "value": 2,
+          "value2": null,
+          "negate": false,
+          "weight": 1.0
+        }
+      ]
+    }
+  },
+  {
+    "name": "SwingTrades",
+    "icon": "\u2b50",
+    "rules": {
+      "op": "AND",
+      "negate": false,
+      "items": [
+        {
+          "field": "swing_score",
+          "op": "gt",
+          "value": 75,
+          "value2": null,
+          "negate": false,
+          "weight": 1
+        },
+        {
+          "field": "abs_vs_8ema",
+          "op": "within",
+          "value": 2,
+          "value2": null,
+          "negate": false,
+          "weight": 1
+        },
+        {
+          "field": "breakout_probability",
+          "op": "gt",
+          "value": 70,
+          "value2": null,
+          "negate": false,
+          "weight": 1
+        },
+        {
+          "field": "rr",
+          "op": "gt",
+          "value": 3,
+          "negate": false
+        }
+      ]
+    },
+    "sort": "match"
+  },
+  {
+    "name": "Turnaround Candidates",
+    "icon": "\u2b50",
+    "sort": "match",
+    "rules": {
+      "op": "AND",
+      "negate": false,
+      "items": [
+        {
+          "field": "is_turnaround",
+          "op": "eq",
+          "value": true,
+          "value2": null,
+          "negate": false,
+          "weight": 1.0
+        },
+        {
+          "field": "health",
+          "op": "gt",
+          "value": 60,
+          "value2": null,
+          "negate": false,
+          "weight": 1.0
+        }
+      ]
+    }
+  },
+  {
+    "name": "put_candidate",
+    "icon": "\u2b50",
+    "rules": {
+      "op": "AND",
+      "negate": false,
+      "items": [
+        {
+          "field": "rsi",
+          "op": "gt",
+          "value": 70,
+          "negate": false
+        },
+        {
+          "field": "pct_vs_8ema",
+          "op": "gt",
+          "value": 5,
+          "negate": false
+        },
+        {
+          "field": "rvol",
+          "op": "lt",
+          "value": 1,
+          "negate": false
+        },
+        {
+          "field": "dist_52w_high",
+          "op": "within",
+          "value": -5,
+          "negate": false
+        }
+      ]
+    },
+    "sort": "match"
+  }
+]

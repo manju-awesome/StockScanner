@@ -29,6 +29,14 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 LATEST_BRIEF_PATH = PROJECT_ROOT / "data" / "premarket_brief.json"
 
+# How old the sector-leader scan may be before the brief re-runs it.
+# The brief fires at 07:00 and again at 08:00; the scan takes three to five
+# minutes, and the daily bars it reads do not change between those two runs.
+# So the first run scans and the second reuses it, and a snapshot left over
+# from yesterday evening is refreshed rather than quietly presented as this
+# morning's structure.
+SECTOR_LEADERS_MAX_AGE_H = 3.0
+
 
 def load_latest_brief() -> dict | None:
     """Reads whatever send_premarket_brief() last wrote — works regardless
@@ -98,13 +106,15 @@ def generate_premarket_brief(watchlist_tickers: list[str] | None = None) -> dict
                 "avg_abs_move_pct": hist.get("avg_abs_move_pct"),
             })
 
+    leaders_snap, leaders_note = _ensure_sector_leaders()
+
     active = alerts.load_active()
     near_breakout = [v["alert"] for v in active.values()
                     if v["alert"]["dedup_key"].endswith((":breakout", ":resistance_touch"))]
 
     sectors = sorted(pulse.get("sectors") or [], key=lambda s: s["chg_pct"], reverse=True)
 
-    return {
+    brief = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "vix": pulse.get("vix") or {},
         "futures": pulse.get("futures") or [],
@@ -122,7 +132,174 @@ def generate_premarket_brief(watchlist_tickers: list[str] | None = None) -> dict
         "unusual_movers": unusual_movers,
         "earnings_today": earnings_today,
         "near_breakout": near_breakout,
+        "sector_leaders": _leaders_digest(leaders_snap),
+        "sector_leaders_note": leaders_note,
     }
+    # Computed after the rest of the dict exists because it cross-references
+    # the movers and earnings blocks against the scan.
+    from stockanalysis.core import leaders_confluence
+    brief["confluence"] = leaders_confluence.compute(brief, leaders_snap)
+    return brief
+
+
+def _ensure_sector_leaders() -> tuple[dict | None, str]:
+    """The sector-leader snapshot, re-scanned if it is too old to describe
+    this morning.
+
+    Returns (snapshot, note). Never raises — a scan failure leaves the brief
+    with whatever snapshot already existed and a note saying so, because a
+    failed cross-reference must not cost the user the rest of the email.
+    """
+    from stockanalysis.core import leaders_store
+
+    snap = leaders_store.load()
+    age = leaders_store.age_hours(snap)
+    if snap and age is not None and age <= SECTOR_LEADERS_MAX_AGE_H:
+        return snap, f"reused the scan from {age:.1f}h ago"
+
+    try:
+        from stockanalysis.scanners.scan_sector_leaders import scan_and_store
+        scan_and_store()
+        snap = leaders_store.load()
+        return snap, "scanned fresh for this brief"
+    except Exception as e:
+        note = f"sector-leader scan failed ({str(e)[:120]})"
+        if snap:
+            note += f" — cross-referencing the previous snapshot ({age:.1f}h old)"
+        return snap, note
+
+
+def _leaders_digest(snap: dict | None) -> dict:
+    """The scan reduced to what belongs in an email.
+
+    The stored snapshot is three megabytes — every candidate carries its full
+    metrics block. The brief persists to disk and is re-read by the Alerts
+    page, so it keeps the ranked shortlist and the sector table, not the
+    scoring inputs behind them.
+    """
+    if not snap:
+        return {}
+    from stockanalysis.core.sector_leaders import scored_rows
+
+    def slim(r):
+        setup = r.get("setup") or {}
+        lv = setup.get("levels") or {}
+        return {
+            "ticker": r.get("ticker"), "group": r.get("group"),
+            "confidence": (r.get("confidence") or {}).get("score"),
+            "confidence_label": (r.get("confidence") or {}).get("label"),
+            "confluence": (r.get("confluence") or {}).get("score"),
+            "leadership": (r.get("leadership") or {}).get("score"),
+            "leadership_band": (r.get("leadership") or {}).get("band"),
+            "clarity": (r.get("clarity") or {}).get("score"),
+            "setup": setup.get("setup"), "grade": setup.get("grade"),
+            "rr": setup.get("rr"), "news_verdict": r.get("news_verdict"),
+            "entry_low": lv.get("entry_low"), "entry_high": lv.get("entry_high"),
+            "stop": lv.get("stop"), "target1": lv.get("target1"),
+            "target2": lv.get("target2"),
+        }
+
+    return {
+        "generated": snap.get("generated"),
+        "market": (snap.get("market") or {}).get("label"),
+        "market_score": (snap.get("market") or {}).get("score"),
+        "sectors": [{"name": x.get("name"), "etf": x.get("etf"),
+                     "score": (x.get("scores") or {}).get("score"),
+                     "trend": (x.get("scores") or {}).get("quality_label"),
+                     "direction": x.get("direction"),
+                     "r1d": (x.get("metrics") or {}).get("r1d"),
+                     "r20d": (x.get("metrics") or {}).get("r20d")}
+                    for x in (snap.get("sectors") or [])],
+        "longs": [slim(r) for r in scored_rows(snap, "long", 6)],
+        "shorts": [slim(r) for r in scored_rows(snap, "short", 6)],
+        "data_gaps": snap.get("data_gaps") or [],
+    }
+
+
+def _leaders_text(brief: dict) -> str:
+    d = brief.get("sector_leaders") or {}
+    if not d:
+        return f"\nSECTOR LEADERS\n  {brief.get('sector_leaders_note') or 'no scan available'}\n"
+
+    lines = ["", "SECTOR LEADERS",
+             f"  market: {d.get('market')} ({d.get('market_score'):+.1f})"
+             f"  [{brief.get('sector_leaders_note')}]"]
+    top = [s for s in d.get("sectors") or []][:4]
+    bottom = [s for s in d.get("sectors") or []][-3:]
+    if top:
+        lines.append("  strongest: " + ", ".join(
+            f"{s['name']} {s['score']:.0f} ({s['trend']})" for s in top))
+    if bottom:
+        lines.append("  weakest:   " + ", ".join(
+            f"{s['name']} {s['score']:.0f} ({s['trend']})" for s in bottom))
+
+    for label, rows in (("BULLISH LEADERS", d.get("longs") or []),
+                        ("BEARISH LEADERS", d.get("shorts") or [])):
+        lines.append(f"\n  {label}")
+        if not rows:
+            lines.append("    none")
+        for r in rows:
+            lines.append(
+                f"    {r['ticker']:6} {r['group'][:20]:20} conf "
+                f"{r['confidence']:.0f} · {r['setup']} [{r['grade']}] · "
+                f"news {r['news_verdict']}")
+            if r.get("entry_low") is not None:
+                lines.append(f"      entry {r['entry_low']}–{r['entry_high']} · "
+                             f"stop {r['stop']} · T1 {r['target1']} · R:R {r['rr']}")
+    return "\n".join(lines) + "\n"
+
+
+def _leaders_html(brief: dict) -> str:
+    d = brief.get("sector_leaders") or {}
+    if not d:
+        return (f'<div style="margin-bottom:14px"><h3 style="font-size:15px;'
+                f'margin:0 0 4px">Sector leaders</h3>'
+                f'<div style="font-size:12px;color:#8a6d1a">'
+                f'{brief.get("sector_leaders_note") or "no scan available"}'
+                f'</div></div>')
+
+    def rows_html(rows, accent):
+        if not rows:
+            return '<div style="font-size:12px;color:#898781">none</div>'
+        out = []
+        for r in rows:
+            levels = ("no entry priced" if r.get("entry_low") is None else
+                      f'entry {r["entry_low"]}–{r["entry_high"]} · stop '
+                      f'{r["stop"]} · T1 {r["target1"]} · R:R {r["rr"]}')
+            out.append(
+                f'<div style="border-left:3px solid {accent};padding:4px 0 4px 9px;'
+                f'margin-bottom:6px">'
+                f'<div style="font-size:13px"><b>{r["ticker"]}</b> '
+                f'<span style="color:#898781">{r["group"]}</span> · '
+                f'confidence <b>{r["confidence"]:.0f}</b> · '
+                f'leadership {r["leadership"]:.0f}</div>'
+                f'<div style="font-size:12px">{r["setup"]} [{r["grade"]}] · '
+                f'news {r["news_verdict"]}</div>'
+                f'<div style="font-size:12px;color:#444441">{levels}</div>'
+                f'</div>')
+        return "".join(out)
+
+    sectors = d.get("sectors") or []
+    table = "".join(
+        f'<div style="font-size:12px;margin-bottom:1px">'
+        f'<b>{s["name"]}</b> <span style="color:#898781">{s["etf"]}</span> '
+        f'{s["score"]:.0f}/100 · {s["r1d"]:+.2f}% 1D · {s["r20d"]:+.2f}% 20D '
+        f'— {s["trend"]}</div>'
+        for s in sectors[:5] + sectors[-3:])
+
+    return f"""
+      <div style="margin-bottom:16px;border-top:2px solid #eceae4;padding-top:12px">
+        <h3 style="font-size:15px;margin:0 0 4px">Sector leaders</h3>
+        <div style="font-size:11px;color:#898781;margin-bottom:8px">
+          {d.get('market')} ({d.get('market_score'):+.1f}) ·
+          {brief.get('sector_leaders_note')}
+        </div>
+        <div style="margin-bottom:10px">{table}</div>
+        <div style="font-size:13px;font-weight:600;margin:8px 0 4px">Bullish leaders</div>
+        {rows_html(d.get("longs") or [], "#0F6E56")}
+        <div style="font-size:13px;font-weight:600;margin:12px 0 4px">Bearish leaders</div>
+        {rows_html(d.get("shorts") or [], "#A32D2D")}
+      </div>"""
 
 
 def render_text(brief: dict) -> str:
@@ -177,6 +354,14 @@ def render_text(brief: dict) -> str:
             when = e["when"].strftime("%a %H:%M ET") if hasattr(e["when"], "strftime") else str(e["when"])
             lines.append(f"  {when} — {e['title']} ({e['impact']})")
 
+    # Sector leaders and the cross-reference go last: the macro/movers block
+    # above is what the brief has always led with, and the confluence section
+    # only makes sense once both of its inputs have been read.
+    from stockanalysis.core import leaders_confluence
+
+    lines.append(_leaders_text(brief))
+    lines.append(leaders_confluence.render_text(brief.get("confluence") or {}))
+
     lines.append("\nNot financial advice.")
     return "\n".join(lines)
 
@@ -220,9 +405,16 @@ def render_html(brief: dict) -> str:
         {row("Earnings today", ticker_list(brief["earnings_today"], lambda e: e["ticker"]))}
         {row("Near a key level", ticker_list(brief["near_breakout"], lambda a: f"{a['ticker']} ({a['headline']})"))}
       </div>
+      {_leaders_html(brief)}
+      {_confluence_html(brief)}
       <p style="font-size:11px;color:#898781">Not financial advice.</p>
     </div>"""
     return sections
+
+
+def _confluence_html(brief: dict) -> str:
+    from stockanalysis.core import leaders_confluence
+    return leaders_confluence.render_html(brief.get("confluence") or {})
 
 
 def send_premarket_brief(watchlist_tickers: list[str] | None = None) -> dict:
@@ -234,8 +426,18 @@ def send_premarket_brief(watchlist_tickers: list[str] | None = None) -> dict:
 
     brief = generate_premarket_brief(watchlist_tickers)
     date_str = brief["generated_at"][:10]
-    send_resend_email(f"[Trading Assistant] Pre-Market Brief — {date_str}",
-                      render_text(brief), render_html(brief))
+    # One email, not two. The sector-leader scan and the movers brief are
+    # separate engines but a single morning read, and the confluence section
+    # only exists because they arrive together.
+    conf = brief.get("confluence") or {}
+    counts = conf.get("counts") or {}
+    tag = ""
+    if conf.get("available"):
+        tag = (f" · {counts.get('aligned', 0)} aligned, "
+               f"{counts.get('conflicts', 0)} conflicting")
+    send_resend_email(
+        f"[Trading Assistant] Pre-Market Brief + Sector Leaders — {date_str}{tag}",
+        render_text(brief), render_html(brief))
 
     LATEST_BRIEF_PATH.parent.mkdir(parents=True, exist_ok=True)
     # default=str: econ_events carry real datetime objects (from

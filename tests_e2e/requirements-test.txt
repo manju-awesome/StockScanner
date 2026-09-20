@@ -1,0 +1,6 @@
+# Test-only dependencies. Not needed to run the workstation.
+#   python3 -m pip install -r tests_e2e/requirements-test.txt
+#   python3 -m playwright install chromium
+pytest>=8.0
+pytest-playwright>=0.5
+requests>=2.31

@@ -34,6 +34,10 @@ if __package__ in (None, ""):   # direct run: make `stockanalysis.*` importable
 from stockanalysis.core.put_candidate import compute_put_candidate
 from stockanalysis.core.call_candidate import compute_call_candidate
 from stockanalysis.core.key_levels import compute_key_levels, KEY_LEVEL_KEYS, KEY_LEVEL_DEFAULTS
+from stockanalysis.core.longterm.daily_signals import (
+    compute_lt_daily, LT_DAILY_KEYS)
+from stockanalysis.core.longterm.fundamentals import (
+    fetch_fundamentals, FUNDAMENTAL_DEFAULTS)
 
 try:
     import yfinance as yf
@@ -197,7 +201,7 @@ DAILY_METRIC_KEYS = (
     "Prev-Day Low", "Prev-Day High", "Prev-Day Close", "Gap%", "Gap_Now%",
     "_prior_52w_high", "_prior_52w_low",
     "Call_Candidate", "Call_Score", "Call_Strength", "Call_Reason", "Call_Strike_Hint"
-)
+) + LT_DAILY_KEYS
 
 
 def compute_daily_metrics(daily: pd.DataFrame, qqq_return_3m: float,
@@ -291,8 +295,14 @@ def compute_daily_metrics(daily: pd.DataFrame, qqq_return_3m: float,
         row["Gap%"] = row["Gap_Now%"] = None
 
     # ── Moving averages ───────────────────────────────────────────────────
-    ma200_raw = _safe_float(close.rolling(200).mean().iloc[-1]) if len(daily) >= 200 else None
-    ma50_raw  = _safe_float(close.rolling(50).mean().iloc[-1])  if len(daily) >= 50  else None
+    # The full series are kept, not just their last value: the long-term
+    # engine needs the SLOPE of each average (which way the trend is going,
+    # not just where price sits relative to it), and recomputing the same
+    # rolling mean a second time to get it would be wasted work.
+    ma200_series = close.rolling(200).mean()
+    ma50_series  = close.rolling(50).mean()
+    ma200_raw = _safe_float(ma200_series.iloc[-1]) if len(daily) >= 200 else None
+    ma50_raw  = _safe_float(ma50_series.iloc[-1])  if len(daily) >= 50  else None
     row["200MA"] = round(ma200_raw, 2) if ma200_raw is not None else None
     row["50MA"]  = round(ma50_raw,  2) if ma50_raw  is not None else None
     row["8EMA"]  = round(float(close.ewm(span=8,  adjust=False).mean().iloc[-1]), 2)
@@ -307,6 +317,12 @@ def compute_daily_metrics(daily: pd.DataFrame, qqq_return_3m: float,
     row["Dist_52W_High%"] = round((p / row["52W High"] - 1) * 100, 1)
     row["Pct_vs_8EMA"]    = round((p / row["8EMA"]   - 1) * 100, 2)
     row["Above_200MA"]    = (p > row["200MA"]) if row["200MA"] is not None else None
+
+    # ── Long-term engine inputs ───────────────────────────────────────────
+    # MA slopes, reversal candle, distribution days and the prior breakout
+    # level — everything core.longterm needs that nothing else computed.
+    # Pure function of this same frame, so it costs no extra fetch.
+    row.update(compute_lt_daily(daily, p, ma50_series, ma200_series))
 
     # ── ATR ───────────────────────────────────────────────────────────────
     daily["ATR20"] = calculate_atr(daily)
@@ -488,6 +504,46 @@ def get_metrics(ticker: str, qqq_return_3m: float) -> dict:
         row["CurrentRatio"] = row["QuickRatio"] = None
         row["TotalCash"] = row["TotalDebt"] = None
 
+    # Valuation inputs for core.longterm.valuation. These come free out of
+    # the `info` dict already fetched above.
+    #
+    # freeCashflow is deliberately NOT taken from here. Measured against the
+    # filed statements it is wrong by 4-10x on large caps (MSFT $16.5B vs a
+    # reported $67.0B; KO implying $11.1B of capex against a real $2.1B), and
+    # a cash-flow model fed from it prices companies at a tenth of their
+    # worth. The real figure comes from the statements below.
+    try:
+        row["SharesOutstanding"] = info.get("sharesOutstanding")
+        row["TotalRevenue"]      = info.get("totalRevenue")
+        row["EnterpriseValue"]   = info.get("enterpriseValue")
+        row["EBITDA"]            = info.get("ebitda")
+        ev_ebitda = info.get("enterpriseToEbitda")
+        row["EV_EBITDA"]  = round(ev_ebitda, 2) if ev_ebitda is not None else None
+        beta = info.get("beta")
+        row["Beta"]       = round(beta, 3) if beta is not None else None
+        pb = info.get("priceToBook")
+        row["PriceToBook"] = round(pb, 2) if pb is not None else None
+    except Exception:
+        for key in ("SharesOutstanding", "TotalRevenue", "EnterpriseValue",
+                    "EBITDA", "EV_EBITDA", "Beta", "PriceToBook"):
+            row[key] = None
+
+    # Annual cash-flow and income statements: the real free cash flow, plus
+    # the multi-year history that makes "growing FCF" and "expanding margins"
+    # measurements rather than assumptions. Two extra fetches (~0.5s), the
+    # only ones core.longterm adds to the scan.
+    #
+    # Retried on throttling like every other fetch, but a hard failure here
+    # is not allowed to husk the row: these columns only feed the long-term
+    # engine, which reads None as "not measured" and degrades to the peer
+    # multiple. Everything else on the row is already populated by now.
+    try:
+        row.update(_with_retry(lambda: fetch_fundamentals(t), ticker,
+                               "statements"))
+    except Exception as e:
+        log.debug("%s: statements unavailable (%s)", ticker, e)
+        row.update(FUNDAMENTAL_DEFAULTS)
+
     try:
         row["Revenue"] = (
             round(info["revenueGrowth"] * 100, 2)
@@ -597,15 +653,14 @@ def get_metrics(ticker: str, qqq_return_3m: float) -> dict:
     except Exception:
         row["PEG_Ratio"] = None
 
-    try:
-        fcf = info.get("freeCashflow")
-        revenue = info.get("totalRevenue")
-        row["FCF_Positive"] = bool(fcf > 0) if fcf is not None else None
-        row["FCF_Margin%"] = (round(fcf / revenue * 100, 1)
-                               if fcf is not None and revenue else None)
-    except Exception:
-        row["FCF_Positive"] = None
-        row["FCF_Margin%"] = None
+    # FCF_Margin% / FCF_Positive are NOT derived from .info here. That field
+    # ("freeCashflow") is wrong by 4-10x — see core.longterm.fundamentals —
+    # and computing a margin from it produced 5.1% for Alphabet against a
+    # filed 16.4%. Both keys come from the annual statements below; when
+    # those are unavailable they stay None, because a wrong margin is worse
+    # than an absent one.
+    row["FCF_Positive"] = None
+    row["FCF_Margin%"] = None
 
     try:
         si = info.get("shortPercentOfFloat")

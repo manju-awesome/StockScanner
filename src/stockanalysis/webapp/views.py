@@ -37,11 +37,33 @@ def tv_url(ticker: str, interval: str | None = None) -> str:
     url = f"https://www.tradingview.com/chart/?symbol={str(ticker).replace('-', '.')}"
     return f"{url}&interval={interval}" if interval else url
 
+# Ordered by how the day actually runs: the two decision engines first
+# (intraday, then long-term), then the pipeline that feeds them
+# (scan → screen → research), then everything that reviews or configures.
 NAV = (("dashboard", "/", "🏠", "Dashboard"),
-       ("ai-sentiment", "/ai-sentiment", "🤖", "AI Sentiment"),
+       ("stockdaytrade", "/stockdaytrade", "🔥", "StockDayTrade"),
+       ("longterm",  "/longterm", "🏛️", "Long-Term"),
+       # Above the scanners because it is the read you take before them:
+       # which regime each name is in decides whether a scanner hit is a
+       # setup or a falling knife.
+       ("trend",     "/trend", "📐", "Trend Regime"),
+       ("csp",       "/csp", "🪙", "CSP"),
+       ("shortside", "/shortside", "⚖️", "Long/Short"),
+       ("leaders",   "/leaders", "🧭", "Sector Leaders"),
+       ("compounder", "/compounder", "🚀", "Compounders"),
        ("scanner",   "/scanner", "📡", "Scanner"),
+       ("screener",  "/screener", "🔬", "Screener"),
+       # After the screens and before Research: it is a second opinion on a
+       # name you already have a view on, not a place to go looking for one.
+       # Its data is quarterly and months old, so it belongs nowhere near the
+       # daily scanners in the reading order.
+       ("institutional", "/institutional", "🏦", "Institutional"),
        ("research",  "/research", "🔎", "Research"),
+       ("ai-sentiment", "/ai-sentiment", "🤖", "AI Sentiment"),
        ("portfolio", "/portfolio", "💼", "Portfolio"),
+       # Next to Portfolio because it consumes it: same holdings, a
+       # horizon of decades instead of quarters.
+       ("retirement", "/retirement", "🎯", "Retirement"),
        ("journal",   "/journal", "📓", "Journal"),
        ("alerts",    "/alerts", "🔔", "Alerts"),
        ("daytrade",  "/daytrade", "⚡", "Day Trade"),
@@ -280,6 +302,11 @@ const _justSubmitted = new Set();   // kinds this tab started, not yet observed
 async function pollJobs() {
   try {
     const res = await fetch('/api/jobs');
+    // This poll doubles as the session heartbeat: it's the one request every
+    // page makes on a timer, so an idle-expired session shows up here first.
+    // Without this the page would sit there looking live while every button
+    // silently 401s.
+    if (res.status === 401) { window.location.href = '/login'; return; }
     const jobs = await res.json();
     renderJobTray(jobs);
     for (const j of jobs) {
@@ -339,18 +366,26 @@ async function toggleWatchlist(name, ticker, btn) {
 
 
 def render_layout(active: str, title: str, body: str,
-                  extra_js: str = "") -> str:
+                  extra_js: str = "", user: str | None = None) -> str:
     navlinks = "".join(
         f'<a class="navlink{" active" if key == active else ""}" href="{href}">'
         f'<span>{icon}</span><span>{label}</span></a>'
         for key, href, icon, label in NAV)
 
-    toolbar = """
+    # Sign-out is a POST, not a link: a GET that ends your session can be
+    # fired by any <img> tag or prefetch on a page you happen to open.
+    signout = (f'<form method="POST" action="/logout" style="margin:0">'
+               f'<button class="btn secondary" type="submit" '
+               f'title="Signed in as {esc(user)}">Sign out</button></form>'
+               if user else "")
+
+    toolbar = f"""
       <button class="btn" onclick="openModal('modal-scan')">+ New Scan</button>
       <button class="btn secondary" onclick="openModal('modal-research')">+ Refresh Research</button>
       <button class="btn secondary" onclick="openModal('modal-news')">+ Update News</button>
       <a class="btn secondary" href="/portfolio" style="text-decoration:none;display:inline-flex;align-items:center">Portfolio</a>
       <a class="btn secondary" href="/automation" style="text-decoration:none;display:inline-flex;align-items:center">Settings</a>
+      {signout}
     """
 
     # load_watchlists(), not a raw read: watchlists.json nests AI sublists on
@@ -469,5 +504,6 @@ def render_layout(active: str, title: str, body: str,
 </body></html>"""
 
 
-def render_page(active: str, title: str, body: str, extra_js: str = "") -> bytes:
-    return render_layout(active, title, body, extra_js).encode()
+def render_page(active: str, title: str, body: str, extra_js: str = "",
+                user: str | None = None) -> bytes:
+    return render_layout(active, title, body, extra_js, user).encode()

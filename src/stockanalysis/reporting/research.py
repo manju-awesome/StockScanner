@@ -1060,6 +1060,23 @@ def refresh_research(tickers: list[str], output_dir: str | Path | None = None,
     enrich_rows(rows)
     attach_strategy_scores(rows)   # RS_Rank uses the small-universe fallback
     attach_conviction(rows)
+
+    # High-conviction option setups (Put/Call_Score >= 9 -> CRITICAL, emailed,
+    # mirrored into ALERT_TICKERS). scan_universe raises these on every scan;
+    # a research refresh recomputes the same scores, so without this hook a
+    # setup found by a library refresh — including the pre/post-market
+    # session scans — would go unreported until the next full scan.
+    # alerts.raise_alerts dedups, so overlapping runs don't re-fire.
+    # Best-effort: an alerting failure must never lose the refreshed pages.
+    try:
+        from stockanalysis.core.watchlist_alerts import scan_rows_for_option_alerts
+        fired = scan_rows_for_option_alerts(rows)
+        if fired:
+            print("[Research] option-score alerts fired: "
+                  + ", ".join(f"{a['ticker']} ({a['category']})" for a in fired))
+    except Exception as e:
+        print(f"[Research] option-score alert scan failed ({e})")
+
     return generate_research_pages(rows, out_dir, charts=charts,
                                    fetch_news=fetch_news)
 
@@ -1105,4 +1122,16 @@ def generate_research_pages(rows: list[dict], output_dir: str | Path,
         _update_research_index(Path(output_dir), rows, written)
     except Exception as e:
         print(f"[Research] index update failed ({e})")
+    # Durable copy, written after the index and independently of it: the
+    # index is rewritten in place by whichever process runs a scan, and one
+    # running stale code has wiped it before (see core/research_snapshot.py).
+    # Only rows that produced a page are recorded, so a failed fetch can't
+    # push blanks into the store either.
+    try:
+        from stockanalysis.core import research_snapshot
+        research_snapshot.record(
+            Path(output_dir),
+            [r for r in rows if r.get("Ticker") in written])
+    except Exception as e:
+        print(f"[Research] snapshot update failed ({e})")
     return written

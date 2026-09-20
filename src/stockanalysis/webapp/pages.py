@@ -166,18 +166,173 @@ function runRegime() {
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SCAN & ANALYZE — refresh the research library, then read the engine's verdict
+# ─────────────────────────────────────────────────────────────────────────────
+# Two halves of one loop, deliberately in one card: the scan is what fills the
+# research library, and the analysis is only ever as current as the last scan
+# that touched those names. Splitting them across two pages is what made
+# "why does NVDA say WATCH" hard to answer — the missing step was invisible.
+
+ANALYZE_JS = r"""
+// Which scope the panel is currently showing, so a research job finishing can
+// refresh it in place. Null until the user asks for an analysis — the
+// Dashboard's default reload-on-finish must survive untouched otherwise.
+let _analysisScope = null;
+
+function anScopeChanged() {
+  const scope = document.getElementById('an-scope').value;
+  document.getElementById('an-ticker').style.display =
+    scope === 'ticker' ? '' : 'none';
+  document.getElementById('an-list').style.display =
+    scope === 'watchlist' ? '' : 'none';
+}
+
+// {scope, value} for the current picker state, or null after complaining.
+function anParams() {
+  const scope = document.getElementById('an-scope').value;
+  if (scope === 'ticker') {
+    const raw = document.getElementById('an-ticker').value.trim();
+    if (!raw) { toast('Type a ticker first — e.g. NVDA', 'err'); return null; }
+    return { scope: scope, value: raw };
+  }
+  if (scope === 'watchlist') {
+    const name = document.getElementById('an-list').value;
+    if (!name) { toast('Pick a watchlist first', 'err'); return null; }
+    return { scope: scope, value: name };
+  }
+  return { scope: scope, value: '' };
+}
+
+async function loadAnalysis() {
+  const params = anParams();
+  if (!params) return;
+  const out = document.getElementById('analysis-out');
+  out.innerHTML = '<div style="font-size:12px;color:#898781;padding:14px 0">'
+    + 'Running the engine over the library…</div>';
+  try {
+    const res = await fetch('/api/analysis?scope=' + encodeURIComponent(params.scope)
+      + '&value=' + encodeURIComponent(params.value));
+    out.innerHTML = await res.text();
+    _analysisScope = params;
+    // The table was injected after load, so its sort/reorder handlers have
+    // to be bound now rather than at DOMContentLoaded.
+    if (typeof initLtTable === 'function') initLtTable();
+  } catch (e) {
+    out.innerHTML = '<div style="font-size:12px;color:#791F1F">'
+      + 'Analysis failed: ' + e + '</div>';
+  }
+}
+
+// The scan half: refresh_research runs the full per-ticker pipeline, which is
+// what repopulates the fields the engine reads. Posting through /run means it
+// shows up in the job tray and toasts like every other job.
+async function runScanAnalyze() {
+  const params = anParams();
+  if (!params) return;
+  const body = { action: 'research' };
+  if (params.scope === 'ticker') body.tickers = params.value;
+  else if (params.scope === 'daytrade') body.watchlist = 'daytrade';
+  else if (params.scope === 'watchlist') body.watchlist = params.value;
+  // The sweep-everything sentinel comes from the server rather than being
+  // spelled again here — two copies of a wire constant is one to forget.
+  else body.watchlist = document.getElementById('an-scope').dataset.all;
+  try {
+    const res = await fetch('/run', { method: 'POST',
+      body: new URLSearchParams(body) });
+    const data = await res.json();
+    toast(data.message || (data.ok ? 'Started' : 'Failed to start'),
+          data.ok ? 'ok' : 'err');
+    if (data.ok) { _analysisScope = params; _justSubmitted.add('research'); }
+  } catch (e) { toast('Request failed: ' + e, 'err'); }
+  pollJobs();
+}
+
+// A research job the panel is waiting on refreshes the panel; anything else
+// keeps the Dashboard's old reload-when-a-job-lands behaviour. Reloading here
+// instead would throw away the analysis the user just asked for.
+function onJobFinished(j) {
+  if (j.kind === 'research' && _analysisScope) { loadAnalysis(); return; }
+  setTimeout(() => location.reload(), 1200);
+}
+"""
+
+
+def _scan_analyze_card() -> str:
+    """The scope picker, the two buttons, and the empty panel they fill."""
+    from stockanalysis.webapp.api import ALL_UNIVERSES_SENTINEL
+    try:
+        from stockanalysis.reporting.research import (
+            load_watchlists, tree_ordered_names, SUBLIST_SEP)
+        watchlists = {n: t for n, t in load_watchlists().items() if t}
+    except Exception as e:
+        print(f"[Dashboard] watchlists unavailable ({e})")
+        watchlists, SUBLIST_SEP, tree_ordered_names = {}, ": ", list
+
+    def _opt(name: str) -> str:
+        """Sublists indent under their parent by leaf name; the value stays
+        the full "AI: Power" the backend resolves."""
+        nested = SUBLIST_SEP in name
+        label = name.split(SUBLIST_SEP, 1)[1] if nested else name
+        pad = "&nbsp;&nbsp;└ " if nested else ""
+        return (f'<option value="{esc(name)}">{pad}{esc(label)} '
+                f'({len(watchlists[name])})</option>')
+
+    list_opts = ('<option value="">Pick a watchlist…</option>' + "".join(
+        _opt(n) for n in tree_ordered_names(sorted(watchlists))))
+    n_all = len({t for v in watchlists.values() for t in v})
+    n_day = len(watchlists.get("daytrade") or [])
+
+    ctl = "padding:8px 10px;font-size:12px;border:0.5px solid #e1e0d9;border-radius:8px"
+    body = f"""
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <select id="an-scope" onchange="anScopeChanged()"
+              data-all="{esc(ALL_UNIVERSES_SENTINEL)}" style="{ctl}">
+        <option value="ticker" selected>Single ticker</option>
+        <option value="daytrade">Day trade list ({n_day})</option>
+        <option value="watchlist">Watchlist…</option>
+        <option value="all">All tickers ({n_all})</option>
+      </select>
+      <input id="an-ticker" placeholder="NVDA, or NVDA AMD MSFT"
+             autocomplete="off" style="{ctl};min-width:220px">
+      <select id="an-list" style="{ctl};display:none;max-width:240px">
+        {list_opts}
+      </select>
+      <button class="btn secondary" onclick="runScanAnalyze()">
+        Scan &amp; refresh research</button>
+      <button class="btn" onclick="loadAnalysis()">Show analysis</button>
+    </div>
+    <div style="font-size:11px;color:#898781;margin-top:8px">
+      <b>Scan &amp; refresh research</b> re-fetches each ticker and rewrites its
+      research page — a few seconds per name, so a whole-library scan is a
+      coffee break, not a click. <b>Show analysis</b> reads what the last scan
+      stored and runs the Long-Term Buy Engine over it: same gates, scores and
+      per-row reasoning as the
+      <a href="/longterm">Long-Term</a> page. The panel refreshes itself when
+      a scan started here finishes.
+    </div>
+    <div id="analysis-out" style="margin-top:14px"></div>"""
+    return card("Scan & Analyze", body, "🔬",
+                right='<a href="/longterm" style="font-size:11px">'
+                      'Full engine →</a>')
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # DASHBOARD (home)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def dashboard_page() -> tuple[str, str]:
+    from . import longterm_view
+
     snap = _read_json(OUTPUT_DIR / "snapshot.json")
     if not snap:
-        # The overall-trend read is independent of scan output, so it stays
-        # available even before the first scan has ever run.
-        return _regime_card() + card("", empty(
-            "No scan yet. Click “+ New Scan” above to run your first scan — "
-            "this page fills in with market status, opportunities, and alerts "
-            "once a scan completes."), pad="40px"), REGIME_JS
+        # The overall-trend read and the Scan & Analyze card are independent of
+        # scan output, so both stay available before the first scan has ever
+        # run — this empty state is exactly when someone needs to start one.
+        return (_regime_card() + _scan_analyze_card() + card("", empty(
+            "No scan yet. Click “+ New Scan” above, or use Scan & Analyze, to "
+            "run your first scan — this page fills in with market status, "
+            "opportunities, and alerts once a scan completes."), pad="40px"),
+            REGIME_JS + ANALYZE_JS + longterm_view.TABLE_JS)
 
     regime = snap.get("regime") or {}
     opp = snap.get("opportunity") or {}
@@ -206,7 +361,8 @@ def dashboard_page() -> tuple[str, str]:
           f'<div style="font-size:16px;font-weight:600">{market.get("vix") if market.get("vix") is not None else "—"}</div></div>'
         + f'<div style="margin-left:auto">{badge(regime.get("regime", "Unknown").upper(), regime_status)}</div>'
         + '</div>'
-        + f'<div style="font-size:11px;color:#898781;margin-top:8px">{esc(regime.get("guidance", ""))}</div>')
+        + f'<div style="font-size:11px;color:#898781;margin-top:8px">{esc(regime.get("guidance", ""))}</div>'
+        + _leadership_html())
 
     # ── Hero: today's opportunity ───────────────────────────────────────────
     risk_status = {"LOW": "good", "MEDIUM": "watch", "HIGH": "bad"}.get(opp.get("risk"), "muted")
@@ -313,6 +469,7 @@ def dashboard_page() -> tuple[str, str]:
         + card("Portfolio", pf_body, "💼", right='<a href="/portfolio" style="font-size:11px">View all →</a>')
         + card("Today's Opportunities", opp_cols, "🎯",
               right='<a href="/scanner" style="font-size:11px">Run new scan →</a>')
+        + _scan_analyze_card()
         + f"""<div style="display:flex;gap:16px;flex-wrap:wrap">
              <div style="flex:1;min-width:260px">{card("Recent Alerts", alerts_html, "🔔")}
                 {card("Turnaround Watch", rec_html, "🔧")}</div>
@@ -321,14 +478,75 @@ def dashboard_page() -> tuple[str, str]:
                 {card("Recent Dashboards", dash_html, "📊")}</div>
            </div>"""
     )
-    extra_js = ("function onJobFinished(j) { setTimeout(() => location.reload(), 1200); }"
-                + REGIME_JS)
-    return body, extra_js
+    # onJobFinished lives in ANALYZE_JS: it has to know whether the panel is
+    # showing an analysis before deciding to reload the page out from under it.
+    return body, REGIME_JS + ANALYZE_JS + longterm_view.TABLE_JS
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # AI SENTIMENT
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+def _leadership_html() -> str:
+    """Benchmark leadership under the Market Status tiles.
+
+    The tiles above come from snapshot.json and only move when a scan runs;
+    this reads the ETF profiles, which refresh independently. Both are
+    labelled with where they came from rather than blended into one
+    apparently-live number.
+
+    It answers what the regime badge cannot: the badge says how strong, this
+    says which part of the market is carrying it. QQQ leading while the Dow
+    lags is a different tape from all three advancing together, even when
+    the badge reads the same.
+    """
+    from stockanalysis.core import etf_profile
+    from stockanalysis.core.market_regime import benchmark_leadership
+    try:
+        profiles = etf_profile.load_profiles(OUTPUT_DIR)
+        lead = benchmark_leadership(profiles)
+    except Exception as e:
+        print(f"[Dashboard] leadership unavailable ({e})")
+        return ""
+    if not lead.get("legs"):
+        return ""
+
+    tone = {"good": ("#E1F5EE", "#085041"), "watch": ("#FAEEDA", "#633806"),
+            "bad": ("#FCEBEB", "#791F1F"), "muted": ("#f1efea", "#52514e")}
+    bg, fg = tone.get(lead.get("tone"), tone["muted"])
+
+    legs = "".join(
+        f'<span style="margin-right:14px">{esc(l["ticker"])} '
+        f'<b style="color:{"#0F6E56" if l["above_200ma"] else "#A32D2D"}">'
+        f'{"↑" if l["above_200ma"] else "↓"} '
+        f'{l["dist_ma200"]:+.1f}%</b></span>'
+        for l in lead["legs"])
+
+    vix = profiles.get("^VIX") or {}
+    vix_html = ""
+    if vix.get("price") is not None:
+        # Above its 200-day means rising fear — the opposite reading to
+        # every other leg here, so it is coloured and worded separately.
+        calm = (vix.get("dist_ma200") or 0) < 0
+        vix_html = (f'<span style="margin-right:14px">VIX '
+                    f'<b style="color:{"#0F6E56" if calm else "#A32D2D"}">'
+                    f'{vix["price"]:.1f} {"calm" if calm else "elevated"}</b></span>')
+
+    missing = ""
+    if lead.get("missing"):
+        missing = (f'<div style="margin-top:3px;font-size:10px">No 200-day data '
+                   f'for {esc(", ".join(lead["missing"]))} — this read uses the rest.</div>')
+
+    stamp = (profiles.get("SPY") or {}).get("quote_at") or ""
+    return (f'<div style="background:{bg};color:{fg};border-radius:9px;'
+            f'padding:9px 12px;margin-top:10px;font-size:11.5px">'
+            f'<b>{esc(lead["verdict"])}</b> — {esc(lead["detail"])}'
+            f'<div style="margin-top:5px;font-size:10.5px;opacity:.85">'
+            f'{legs}{vix_html}<span style="opacity:.7">vs 200-day'
+            f'{" · ETF profiles as of " + esc(stamp[:16]) if stamp else ""}</span></div>'
+            f'{missing}</div>')
+
 
 def _ai_sentiment_teaser() -> str:
     """Compact score+link card for the home Dashboard — hidden until the
@@ -740,7 +958,114 @@ SCAN_STEP_LABELS = [
 ]
 
 
-def scanner_page() -> tuple[str, str]:
+def longterm_page(query: dict | None = None) -> tuple[str, str]:
+    """The Long-Term Buy Engine — see webapp/longterm_view.py. Takes the
+    query string because its filters and regime override live in the URL."""
+    from . import longterm_view
+    return longterm_view.longterm_page(query)
+
+
+def csp_page(query: dict | None = None) -> tuple[str, str]:
+    """The Cash-Secured Put engine — see webapp/csp_view.py.
+
+    Takes the query string because its ticker lookup lives in the URL.
+    Renders the last stored scan; distinct from /longterm, whose company
+    verdict it consumes rather than recomputes."""
+    from stockanalysis.webapp import csp_view
+    return csp_view.csp_page(query)
+
+
+def leaders_page(query: dict | None = None) -> tuple[str, str]:
+    """The market → sector → industry → stock → setup scan — see
+    webapp/leaders_view.py.
+
+    Takes the query dict for the same reason /shortside does: it renders from
+    a stored snapshot and its filters belong in the URL, not in session state.
+    """
+    from stockanalysis.webapp import leaders_view
+    return leaders_view.leaders_page(query)
+
+
+def shortside_page(query: dict | None = None) -> tuple[str, str]:
+    """The two-sided decision engine — see webapp/shortside_view.py.
+
+    Takes the query string because its manual ticker list lives in the
+    URL. Scores every name long AND short; distinct from /longterm, whose
+    quality rejections it treats as evidence rather than as a verdict."""
+    from stockanalysis.webapp import shortside_view
+    return shortside_view.shortside_page(query)
+
+
+def trend_page(query: dict | None = None) -> tuple[str, str]:
+    """The trend regime classifier — see webapp/trend_view.py.
+
+    Takes the query string because both its state lives there: which of the
+    five filters is active, and any manually typed ticker list (which is
+    classified live rather than read from the snapshot).
+    """
+    from stockanalysis.webapp import trend_view
+    return trend_view.trend_page(query)
+
+
+def retirement_page(query: dict | None = None) -> tuple[str, str]:
+    """The retirement and financial-independence engine —
+    see webapp/retirement_view.py.
+
+    Takes the query dict so that ?refresh=1 can force a recompute; the
+    page otherwise renders the stored snapshot and only recomputes when
+    the profile has changed under it.
+    """
+    from stockanalysis.webapp import retirement_view
+    return retirement_view.retirement_page(query)
+
+
+def institutional_page(query: dict | None = None) -> tuple[str, str]:
+    """Institutional long call/put positions from 13F —
+    see webapp/institutional_view.py.
+
+    Renders a stored snapshot rather than scanning: a run streams a ~400 MB
+    SEC information table. Takes the query string for its ticker lookup and
+    the put/call leaderboard toggle.
+    """
+    from stockanalysis.webapp import institutional_view
+    return institutional_view.institutional_page(query)
+
+
+def compounder_page(query: dict | None = None) -> tuple[str, str]:
+    """The Future Compounder engine — see webapp/compounder_view.py.
+
+    Renders a stored scan rather than scanning live: a run is six network
+    calls per company across the whole theme library. Takes the query string
+    because its ticker filter lives in the URL, the same way /shortside
+    does."""
+    from stockanalysis.webapp import compounder_view
+    return compounder_view.compounder_page(query)
+
+
+def stockdaytrade_page() -> tuple[str, str]:
+    """The stock day-trade scanner — see webapp/stockdaytrade_view.py.
+
+    Distinct from /daytrade, which is the SPY 0DTE engine in spydaytrader.
+    Both are intraday and they share nothing: that one trades one index's
+    options off a signal engine, this one ranks equities on §10 confluence
+    across small/mid/large-cap profiles and reads no fundamentals at all."""
+    from stockanalysis.webapp import stockdaytrade_view
+    return stockdaytrade_view.stockdaytrade_page()
+
+
+def screener_page() -> tuple[str, str]:
+    """Screener lives in its own module — see screener_view.py. Scanner runs
+    the pipeline that produces the data; Screener queries what it produced."""
+    from stockanalysis.webapp import screener_view
+    return screener_view.screener_page()
+
+
+def scanner_page(query: dict | None = None) -> tuple[str, str]:
+    # ?tickers=NVDA,AMD prefills the ad-hoc box — how /longterm's "Rescan
+    # these" arrives, so a filtered set becomes a scan without a copy-paste.
+    # Declaring the parameter is all the routing needs: app._wants_query
+    # detects it from the signature.
+    prefill = ((query or {}).get("tickers") or [""])[0].strip()
     steps_html = "".join(
         f'<div id="step-{key}" style="flex:1;text-align:center;padding:10px 6px;'
         f'border-radius:8px;background:#f1efea;font-size:11px;font-weight:600;'
@@ -853,10 +1178,15 @@ def scanner_page() -> tuple[str, str]:
       </div>
       <div style="display:flex;flex-direction:column;gap:8px">
         <div>
-          <input name="tickers" placeholder="NVDA, AMD, MU…" style="min-width:220px">
+          <input name="tickers" placeholder="NVDA, AMD, MU…" style="min-width:220px"
+                 value="{esc(prefill)}">
           <div style="font-size:10px;color:#898781;margin-top:3px">
             optional tickers (comma or space separated) — added to the selected
             categories, or scanned alone if none selected</div>
+          {f'<div style="font-size:10px;color:#185FA5;margin-top:3px">'
+           f'{len([t for t in prefill.replace(chr(44), chr(32)).split() if t])} '
+           f'tickers loaded from the Long-Term page — nothing is selected '
+           f'above, so Run Scan covers exactly these.</div>' if prefill else ''}
         </div>
         <label style="font-size:12px;display:flex;gap:6px;align-items:center">
           <input type="checkbox" name="portfolio" checked> include Portfolio management</label>
@@ -1056,7 +1386,17 @@ def research_page() -> tuple[str, str]:
     # flat view — watchlists.json nests AI sublists on disk
     from stockanalysis.reporting.research import load_watchlists as _load_wl
     watchlists = _load_wl()
-    rows = sorted(idx.values(), key=lambda r: r.get("ticker") or "")
+    # Read through core.research_snapshot so a ticker whose index entry was
+    # overwritten by a process running older code still shows its last known
+    # values instead of a row of dashes. Live index fields always win; the
+    # snapshot only fills what the index no longer carries.
+    from stockanalysis.core import research_snapshot
+    try:
+        rows = research_snapshot.merged(idx, research_snapshot.load(OUTPUT_DIR))
+    except Exception as e:
+        print(f"[Research page] snapshot unavailable ({e})")
+        rows = list(idx.values())
+    rows = sorted(rows, key=lambda r: r.get("ticker") or "")
     # market_cap joined the curated index fields later than most — entries
     # written before then only carry it inside "raw", so backfill from there.
     # The three company scores are computed here at render time
@@ -1103,6 +1443,78 @@ def research_page() -> tuple[str, str]:
     # per-row score like the ones in the loop).
     from stockanalysis.core.market_position import attach_peer_positions
     attach_peer_positions(rows)
+    # A ticker no scan ever got a quote for is shown as "no data", not as the
+    # Avoid/AVOID/1-star the entry gate stamps on a husk row — see
+    # research_snapshot.has_quote(). Marked here rather than in the renderer
+    # so the flag also drives the filter counts below.
+    for r in rows:
+        r["no_data"] = not research_snapshot.has_quote(r)
+        if r["no_data"]:
+            # Zeroed scores and an "Avoid" grade on a husk row are artifacts
+            # of the entry gate rejecting a missing price, not findings.
+            # Blanking them here (rather than only in the cell renderers)
+            # keeps sorting and the Action filter honest too — otherwise
+            # sorting by Conviction would rank never-fetched tickers as
+            # genuinely worst-in-library.
+            for k in ("category", "grade", "conv_overall", "conv_stars",
+                      "conv_action", "investment_score", "swing_score",
+                      "daytrade_score", "call_score", "put_score",
+                      "swing_rank", "day_rank", "buy_zone_score",
+                      "buy_zone_label"):
+                r[k] = None
+    no_data_count = sum(1 for r in rows if r["no_data"])
+
+    # ETFs get their own columns: every fundamental the equity table shows
+    # is undefined for a fund, so the same row shape would be all dashes.
+    from stockanalysis.core import etf_profile
+    try:
+        etf_profile.attach_profiles(
+            rows, etf_profile.load_profiles(OUTPUT_DIR))
+    except Exception as e:
+        print(f"[Research page] ETF profiles unavailable ({e})")
+    # A fund with a profile but no library entry still belongs in the ETF
+    # view: everything that tab shows (theme, price, expense, AUM, change,
+    # holdings) comes from the profile, not the equity scan. Requiring a scan
+    # first would hide a newly added ETF from the one view built for it.
+    try:
+        profiles = etf_profile.load_profiles(OUTPUT_DIR)
+        known = {r.get("ticker") for r in rows}
+        for ticker, p in sorted(profiles.items()):
+            if ticker in known or p.get("error"):
+                continue
+            rows.append({"ticker": ticker, "sector": "ETF",
+                         "no_data": False, "not_scanned": True,
+                         "price": p.get("price"), "raw": {}})
+        etf_profile.attach_profiles(rows, profiles)
+    except Exception as e:
+        print(f"[Research page] ETF profile-only rows skipped ({e})")
+
+    etf_count = sum(1 for r in rows if etf_profile.is_etf_row(r))
+    from stockanalysis.webapp.api import load_etf_allocations
+    try:
+        etf_alloc_json = json.dumps(load_etf_allocations())
+    except Exception:
+        etf_alloc_json = "{}"
+    # "Held" = on the user's ETF watchlist. Benchmarks were given profiles
+    # but deliberately not added to that list, which is what separates a
+    # reference index from a position — and lets IWM/VTI be both.
+    try:
+        etf_held = set(watchlists.get("Sector: ETF") or [])
+    except Exception:
+        etf_held = set()
+    # Leadership read over the benchmark ETFs — which part of the market is
+    # carrying it, which the single regime score can't express.
+    from stockanalysis.core.market_regime import benchmark_leadership
+    try:
+        leadership_json = json.dumps(
+            benchmark_leadership(etf_profile.load_profiles(OUTPUT_DIR)))
+    except Exception as e:
+        print(f"[Research page] leadership unavailable ({e})")
+        leadership_json = "null"
+    for r in rows:
+        r["is_etf"] = etf_profile.is_etf_row(r)
+        r["is_benchmark"] = etf_profile.is_benchmark(r.get("ticker"))
+        r["is_holding"] = r.get("ticker") in etf_held
     rows_json = json.dumps(rows)
     from stockanalysis.reporting.research import SUBLIST_SEP as _SEP
     watch_names = sorted(set(list(watchlists.keys()) or []) |
@@ -1137,7 +1549,37 @@ def research_page() -> tuple[str, str]:
             "or run a scan to populate the library."), pad="40px")
         return body, ""
 
+    # Same preset list the Screener offers, built from the one registry in
+    # core.screener so the two pages can't drift apart.
+    from stockanalysis.core.screener import PRESETS as _PRESETS
+    preset_opts = "".join(
+        f'<option value="{esc(p["key"])}">{esc(p["icon"] + " " + p["name"])}'
+        f'</option>' for p in _PRESETS)
+
+    # Named, not hidden: these tickers look like ordinary rows of dashes
+    # otherwise, and the natural reading of a dash is "bad" rather than
+    # "never fetched".
+    no_data_note = (
+        f'<div style="font-size:11px;padding:9px 13px;border-radius:9px;'
+        f'margin-bottom:12px;background:#FAEEDA;color:#633806;'
+        f'border:0.5px solid #f0dfc0">⚠ <b>{no_data_count}</b> of {len(rows)} '
+        f'tickers have no quote from any scan — the data source returns '
+        f'nothing for these symbols (usually delisted, acquired or renamed). '
+        f'They are shown as “no data” rather than rated, and are excluded '
+        f'from the Screener. Use the <b>No data</b> tab to review or unstar '
+        f'them.</div>') if no_data_count else ""
+
     controls = f"""
+    {no_data_note}
+    <dialog id="etf-modal">
+      <div class="modal-body" style="min-width:440px;max-width:560px">
+        <h3 id="etf-modal-title"></h3>
+        <div id="etf-modal-body"></div>
+        <div class="modal-actions">
+          <button class="btn secondary" onclick="closeModal('etf-modal')">Close</button>
+        </div>
+      </div>
+    </dialog>
     <div id="action-tabs" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px"></div>
     <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px">
       <input id="rsearch" placeholder="Filter by ticker or sector…" style="min-width:220px"
@@ -1146,6 +1588,14 @@ def research_page() -> tuple[str, str]:
         <option value="table">Table view</option>
         <option value="grouped">Grouped by sector</option>
       </select>
+      <span style="display:inline-flex;align-items:center;gap:6px">
+        <select id="rpreset" onchange="applyResearchPreset(this.value)"
+                title="Filter this table by one of the Screener's preset screens">
+          <option value="">Screen: none</option>
+          {preset_opts}
+        </select>
+        <span id="rpreset-info" style="font-size:11px;color:#898781"></span>
+      </span>
       <form style="display:contents" onsubmit="submitJob(event, this, null); return false;">
         <input type="hidden" name="action" value="research_session">
         <input type="hidden" name="session" value="premarket">
@@ -1224,6 +1674,10 @@ def research_page() -> tuple[str, str]:
 
     js = f"""
     const RESEARCH_ROWS = {rows_json};
+    // Seeded from data/etf_allocations.json so the book you entered is still
+    // there after a reload.
+    const ETF_ALLOC = {etf_alloc_json};
+    const ETF_LEADERSHIP = {leadership_json};
     const WATCHLISTS = {json.dumps(watchlists)};
     let sortKey = 'ticker', sortDir = 1;
     let actionFilter = '';
@@ -1282,9 +1736,15 @@ def research_page() -> tuple[str, str]:
       ['eps_growth', 'EPS Gr%', r => r.eps_growth != null
         ? `<span style="color:${{r.eps_growth > 0 ? '#0F6E56' : '#A32D2D'}}">${{r.eps_growth > 0 ? '+' : ''}}${{r.eps_growth}}%</span>` : '—'],
       ['forward_pe', 'Fwd P/E', r => r.forward_pe ?? '—'],
-      ['category', 'Category', r => r.category || '—'],
-      ['conv_action', 'Action', r => `<span style="color:${{actionColor(r.conv_action)}};font-weight:600">${{r.conv_action || '—'}}</span>`],
-      ['conv_stars', 'Conv ★', r => r.conv_stars != null
+      ['category', 'Category', r => r.no_data
+        ? '<span style="color:#898781">no data</span>' : (r.category || '—')],
+      // A husk row (failed fetch) carries Avoid/AVOID/1★ from the entry
+      // gate, not from analysis. Showing that verdict would assert we looked
+      // at the company and rejected it, so these render as unknown instead.
+      ['conv_action', 'Action', r => r.no_data
+        ? '<span style="color:#898781" title="No scan ever obtained a quote for this ticker — it is not rated">no data</span>'
+        : `<span style="color:${{actionColor(r.conv_action)}};font-weight:600">${{r.conv_action || '—'}}</span>`],
+      ['conv_stars', 'Conv ★', r => (r.conv_stars != null && !r.no_data)
         ? `<span style="color:#c9a227;letter-spacing:1px">${{'★'.repeat(r.conv_stars)}}<span style="color:#d9d7ce">${{'☆'.repeat(Math.max(0, 5 - r.conv_stars))}}</span></span>` : '—'],
       ['swing_score', 'Swing', r => fmtScore(r.swing_score)],
       ['daytrade_score', 'Day', r => fmtScore(r.daytrade_score)],
@@ -1473,9 +1933,14 @@ def research_page() -> tuple[str, str]:
     function actionColor(a) {{ return a === 'READY' ? '#0F6E56' : a === 'WATCH' ? '#8a6d1a' : a === 'AVOID' ? '#A32D2D' : '#898781'; }}
     function setActionFilter(a) {{ actionFilter = a; renderResearch(); }}
     function renderActionTabs() {{
-      const tabs = [['', 'All'], ['READY', 'Ready'], ['WATCH', 'Watch'], ['AVOID', 'Avoid']];
+      const tabs = [['', 'All'], ['READY', 'Ready'], ['WATCH', 'Watch'], ['AVOID', 'Avoid'],
+                    ['ETF', 'ETFs'], ['NODATA', 'No data']];
       document.getElementById('action-tabs').innerHTML = tabs.map(([val, label]) => {{
-        const count = val ? RESEARCH_ROWS.filter(r => r.conv_action === val).length : RESEARCH_ROWS.length;
+        const count = val === 'NODATA' ? RESEARCH_ROWS.filter(r => r.no_data).length
+          : val === 'ETF' ? RESEARCH_ROWS.filter(r => r.is_etf).length
+          : val ? RESEARCH_ROWS.filter(r => r.conv_action === val).length
+          : RESEARCH_ROWS.length;
+        if ((val === 'NODATA' || val === 'ETF') && !count) return '';
         const active = actionFilter === val;
         const color = val ? actionColor(val) : '#52514e';
         return `<button onclick="setActionFilter('${{val}}')"
@@ -1505,6 +1970,540 @@ def research_page() -> tuple[str, str]:
     }}
     // Search + watchlist + action-tab filtering, shared by the table render
     // and the CSV export so a download can never drift from what's on screen.
+    // ── ETF view ───────────────────────────────────────────────────────────
+    function fmtEtfPct(v, nd) {{
+      return v == null ? '—' : Number(v).toFixed(nd == null ? 2 : nd) + '%';
+    }}
+    // Signed, coloured, and carrying the timestamp of the quote it came
+    // from: this is the change as of the last ETF refresh, not a live tick,
+    // and an unqualified "+1.83%" would imply otherwise.
+    function fmtEtfChange(pct, abs, at) {{
+      if (pct == null) return '—';
+      const c = pct > 0 ? '#0F6E56' : pct < 0 ? '#A32D2D' : '#898781';
+      const sign = pct > 0 ? '+' : '';
+      const tip = (abs != null ? `${{sign}}${{Number(abs).toFixed(2)}} ` : '') +
+                  (at ? `as of ${{at}}` : '');
+      return `<span style="color:${{c}};font-weight:600" title="${{tip}}">` +
+             `${{sign}}${{Number(pct).toFixed(2)}}%</span>`;
+    }}
+    // ── theme naming ───────────────────────────────────────────────────────
+    // The provider's category is too broad to be useful on a thematic fund —
+    // SMH and IGV are both "Technology" — so the label is editable and the
+    // user's wording is stored separately from the fetched category, which
+    // is what lets it survive every ETF refresh.
+    function etfThemeCell(r) {{
+      const name = r.etf_theme_name || r.etf_category || '—';
+      const custom = r.etf_theme_custom;
+      return `<span id="theme-${{r.ticker}}" onclick="editEtfTheme('${{r.ticker}}')"
+        title="${{custom ? 'Your label — click to edit (blank resets to “' +
+          (r.etf_category || 'provider category') + '”)' : 'Click to name this theme'}}"
+        style="cursor:pointer;border-bottom:1px dotted #b9b7ae;${{
+          custom ? 'font-weight:600' : 'color:#898781'}}">${{name}}</span>`;
+    }}
+    function editEtfTheme(ticker) {{
+      const r = RESEARCH_ROWS.find(x => x.ticker === ticker);
+      if (!r) return;
+      const cell = document.getElementById('theme-' + ticker);
+      if (!cell || cell.dataset.editing) return;
+      cell.dataset.editing = '1';
+      const current = r.etf_theme_custom ? (r.etf_theme_name || '') : '';
+      cell.outerHTML = `<input id="theme-input-${{ticker}}" value="${{current}}"
+        placeholder="${{r.etf_category || 'theme'}}" maxlength="60"
+        style="width:130px;font-size:11px;padding:2px 6px"
+        onkeydown="if(event.key==='Enter'){{saveEtfTheme('${{ticker}}')}}
+                   else if(event.key==='Escape'){{renderResearch()}}"
+        onblur="saveEtfTheme('${{ticker}}')">`;
+      const input = document.getElementById('theme-input-' + ticker);
+      if (input) {{ input.focus(); input.select(); }}
+    }}
+    let _themeSaving = false;
+    async function saveEtfTheme(ticker) {{
+      // blur fires again when the input is torn down by the re-render
+      if (_themeSaving) return;
+      const input = document.getElementById('theme-input-' + ticker);
+      if (!input) return;
+      _themeSaving = true;
+      try {{
+        const res = await fetch('/api/etf/theme', {{
+          method: 'POST',
+          body: new URLSearchParams({{ ticker, theme: input.value }}),
+        }});
+        const data = await res.json();
+        if (data.ok) {{
+          const r = RESEARCH_ROWS.find(x => x.ticker === ticker);
+          if (r) {{ r.etf_theme_name = data.theme; r.etf_theme_custom = data.custom; }}
+          toast(data.message, 'ok');
+        }} else {{ toast(data.message || 'Could not save theme', 'err'); }}
+      }} catch (e) {{ toast('Could not save theme: ' + e, 'err'); }}
+      _themeSaving = false;
+      renderResearch();
+    }}
+
+    // How much of the fund the published holdings actually account for, and
+    // over how many names. The provider publishes ten for most funds but
+    // only five for some (DRAM), so a fixed "Top 10" label would assert a
+    // completeness the data doesn't have — and understate concentration risk
+    // by implying the rest is diversified rather than simply undisclosed.
+    function etfDisclosedCell(r) {{
+      const w = r.etf_top10_weight, n = r.etf_holdings_count;
+      if (w == null || !n) return '—';
+      const mix = r.etf_asset_mix || {{}};
+      const partial = n < 10;
+      let tip = `Top ${{n}} published holdings = ${{w.toFixed(1)}}% of the fund; ` +
+                `${{(100 - w).toFixed(1)}}% is not disclosed here.`;
+      if (partial) tip += ` The provider publishes only ${{n}} holdings for this fund.`;
+      if (mix.other) tip += ` ${{mix.other}}% of assets sit in "other" ` +
+        `(often swap exposure, which never appears in a holdings list).`;
+      return `<span title="${{tip}}" style="${{partial ? 'color:#8a6d1a;font-weight:600' : ''}}">
+        ${{w.toFixed(1)}}% <span style="font-size:9px;color:#898781">/${{n}}${{
+          partial ? ' ⚠' : ''}}</span></span>`;
+    }}
+
+    // Spells out what the list does and doesn't cover, so a name being
+    // absent is read as "not published" rather than "not held".
+    function etfCoverageNote(r) {{
+      const w = r.etf_top10_weight, n = r.etf_holdings_count || 0;
+      if (!n) return '';
+      const mix = r.etf_asset_mix || {{}};
+      const rest = w == null ? null : (100 - w);
+      let msg = `These are the <b>${{n}}</b> holdings the fund's data provider ` +
+        `publishes` + (w != null ? `, together <b>${{w.toFixed(1)}}%</b> of the fund` : '') +
+        `. ` + (rest != null ? `The remaining <b>${{rest.toFixed(1)}}%</b> is not
+        disclosed here, so a company absent from this list may still be held. ` : '');
+      if (n < 10) msg += `Note this provider publishes only ${{n}} holdings for
+        this fund, fewer than the usual ten. `;
+      if (mix.other) msg += `<b>${{mix.other}}%</b> of assets are classified
+        "other" — typically swap or derivative exposure, which never shows up
+        as a holding even when the underlying company is part of the strategy. `;
+      if (mix.stock != null) msg += `Asset mix: ${{mix.stock}}% stock` +
+        (mix.cash ? `, ${{mix.cash}}% cash` : '') +
+        (mix.other ? `, ${{mix.other}}% other` : '') + '.';
+      return `<div style="margin-top:12px;font-size:11px;line-height:1.55;
+        background:#FAEEDA;color:#633806;border-radius:8px;padding:9px 12px">${{msg}}</div>`;
+    }}
+
+    // ── ETF column order ───────────────────────────────────────────────────
+    // Its own order list — the equity table's visibleCols is a different set
+    // of columns entirely. Widths are shared (colWidths, keyed by column
+    // key) because the keys don't overlap and one resize store is simpler
+    // than two that behave identically.
+    const ETFCOLS_LS_KEY = 'etf_col_order_v1';
+    let etfColOrder = (() => {{
+      try {{
+        const raw = JSON.parse(localStorage.getItem(ETFCOLS_LS_KEY) || '[]');
+        return Array.isArray(raw) ? raw.filter(k => typeof k === 'string') : [];
+      }} catch (e) {{ return []; }}
+    }})();
+    function saveEtfColOrder() {{
+      try {{ localStorage.setItem(ETFCOLS_LS_KEY, JSON.stringify(etfColOrder)); }}
+      catch (e) {{ /* private mode — the order just won't persist */ }}
+    }}
+    let _dragEtfColKey = null;
+    function onEtfColDragStart(e, key) {{
+      _dragEtfColKey = key;
+      e.dataTransfer.effectAllowed = 'move';
+      e.target.style.opacity = '0.4';
+    }}
+    function onEtfColDrop(e, targetKey) {{
+      e.preventDefault();
+      e.currentTarget.style.borderLeft = '';
+      const dragged = _dragEtfColKey;
+      _dragEtfColKey = null;
+      if (!dragged || dragged === targetKey) return;
+      const from = etfColOrder.indexOf(dragged);
+      const to = etfColOrder.indexOf(targetKey);
+      if (from === -1 || to === -1) return;
+      etfColOrder.splice(from, 1);
+      etfColOrder.splice(to, 0, dragged);
+      saveEtfColOrder();
+      renderResearch();
+    }}
+    function resetEtfCols() {{
+      etfColOrder = [];
+      saveEtfColOrder();
+      // Clear widths for ETF columns only — the equity table shares this
+      // store and its columns must keep whatever the user set there.
+      Object.keys(colWidths).forEach(k => {{
+        if (k === 'ticker' || k === 'price' || k === '_alloc' || k.startsWith('etf_'))
+          delete colWidths[k];
+      }});
+      saveColWidths();
+      renderResearch();
+    }}
+
+    // ── ETF sorting ────────────────────────────────────────────────────────
+    let etfSortKey = 'ticker', etfSortDir = 1;
+    function setEtfSort(key) {{
+      // Clicking the active column flips direction; a new column starts
+      // descending for numbers (biggest first is what you want from AUM or
+      // today's move) and ascending for text.
+      if (etfSortKey === key) {{ etfSortDir = -etfSortDir; }}
+      else {{ etfSortKey = key; etfSortDir = (key === 'ticker' ||
+             key === 'etf_theme_name' || key === 'etf_family') ? 1 : -1; }}
+      renderResearch();
+    }}
+    function sortEtfRows(rows) {{
+      const key = etfSortKey;
+      return [...rows].sort((a, b) => {{
+        const av = a[key], bv = b[key];
+        // Missing values sort last under either direction — a fund with no
+        // expense ratio isn't the cheapest one.
+        const an = av === null || av === undefined, bn = bv === null || bv === undefined;
+        if (an && bn) return 0;
+        if (an) return 1;
+        if (bn) return -1;
+        if (typeof av === 'number' && typeof bv === 'number') {{
+          return (av - bv) * etfSortDir;
+        }}
+        return String(av).localeCompare(String(bv)) * etfSortDir;
+      }});
+    }}
+
+    // ── portfolio look-through ─────────────────────────────────────────────
+    // Weights are entered in the table's last column; this bar totals them
+    // and runs core.etf_portfolio over the result. The analysis is
+    // server-side because the sector blending and the alert thresholds are
+    // the kind of thing that must have one implementation, not two.
+    function allocTotal() {{
+      return Object.values(ETF_ALLOC).reduce((a, b) => a + (Number(b) || 0), 0);
+    }}
+    function onAllocInput(ticker, value) {{
+      const v = parseFloat(value);
+      if (!value || isNaN(v) || v <= 0) delete ETF_ALLOC[ticker];
+      else ETF_ALLOC[ticker] = v;
+      const el = document.getElementById('alloc-total');
+      if (el) {{
+        const t = allocTotal();
+        el.textContent = t.toFixed(1) + '%';
+        // Not an error: analyze() normalises, so 95% still works — but the
+        // number should be visible rather than silently rescaled.
+        el.style.color = Math.abs(t - 100) < 0.05 ? '#0F6E56' : '#8a6d1a';
+      }}
+    }}
+    function etfPortfolioBar() {{
+      const t = allocTotal();
+      return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+        background:white;border:0.5px solid #e1e0d9;border-radius:10px;
+        padding:10px 13px;margin-bottom:12px">
+        <b style="font-size:12px">Portfolio look-through</b>
+        <span style="font-size:11px;color:#898781">Enter weights in the
+          <b>Weight %</b> column, then analyse. Totals are normalised, so 95%
+          works.</span>
+        <span style="margin-left:auto;font-size:11px;color:#898781">Total
+          <b id="alloc-total" style="color:${{Math.abs(t - 100) < 0.05 ?
+            '#0F6E56' : '#8a6d1a'}}">${{t.toFixed(1)}}%</b></span>
+        <button class="btn" style="font-size:11px" onclick="runEtfPortfolio()">
+          Analyse portfolio</button>
+        <button class="btn secondary" style="font-size:11px"
+          onclick="clearEtfPortfolio()">Clear</button>
+        <form style="display:inline" onsubmit="submitJob(event, this, null); return false;">
+          <input type="hidden" name="action" value="etf_profiles">
+          <button class="btn secondary" style="font-size:11px"
+            title="Re-fetch theme, holdings, expense ratio, AUM, price levels and today's change for every ETF">🧺 Refresh ETFs</button>
+        </form>
+        <button class="btn secondary" style="font-size:11px" onclick="resetEtfCols()"
+          title="Restore the default ETF column order and widths">↺ Columns</button>
+        </div>
+        <div style="font-size:10px;color:#898781;margin:-6px 0 10px 2px">
+          Drag a column header to reorder it · drag its right edge to resize ·
+          click it to sort</div>`;
+    }}
+    function clearEtfPortfolio() {{
+      for (const k of Object.keys(ETF_ALLOC)) delete ETF_ALLOC[k];
+      fetch('/api/etf/portfolio', {{method: 'POST',
+        body: JSON.stringify({{allocations: {{}}, save: true}})}});
+      renderResearch();
+    }}
+    async function runEtfPortfolio() {{
+      const box = document.getElementById('etf-report');
+      if (!Object.keys(ETF_ALLOC).length) {{
+        toast('Enter at least one weight first', 'err'); return;
+      }}
+      box.innerHTML = '<div style="font-size:11px;color:#898781;padding:8px">Analysing…</div>';
+      let d;
+      try {{
+        const res = await fetch('/api/etf/portfolio', {{
+          method: 'POST', body: JSON.stringify({{allocations: ETF_ALLOC, save: true}})}});
+        d = await res.json();
+      }} catch (e) {{ box.innerHTML = ''; toast('Analysis failed: ' + e, 'err'); return; }}
+      if (!d.ok) {{ box.innerHTML = ''; toast(d.message || 'Analysis failed', 'err'); return; }}
+      box.innerHTML = renderEtfReport(d);
+    }}
+    function bar(pct, color) {{
+      const w = Math.max(0, Math.min(100, pct));
+      return `<span style="display:inline-block;width:150px;height:9px;
+        background:#f1efea;border-radius:5px;overflow:hidden;vertical-align:middle">
+        <span style="display:block;width:${{w}}%;height:100%;background:${{color}}"></span></span>`;
+    }}
+    function renderEtfReport(d) {{
+      const alertColor = {{red: '#791F1F', amber: '#8a6d1a', green: '#0F6E56'}};
+      const alertBg = {{red: '#FCEBEB', amber: '#FAEEDA', green: '#E1F5EE'}};
+      const alerts = d.alerts.map(a => `
+        <div style="background:${{alertBg[a.level]}};color:${{alertColor[a.level]}};
+          border-radius:8px;padding:7px 11px;font-size:11.5px;margin-bottom:5px">
+          ${{a.level === 'red' ? '🔴' : a.level === 'amber' ? '🟠' : '🟢'}}
+          <b>${{a.text}}</b>${{a.detail ? ` — ${{a.detail}}` : ''}}</div>`).join('');
+      const sectors = d.sectors.map(s => `
+        <div style="display:flex;gap:9px;align-items:center;font-size:11.5px;margin-bottom:3px">
+          <span style="width:150px">${{s.sector}}</span>
+          ${{bar(s.pct, s.sector === 'Technology' && s.pct > 30 ? '#A32D2D' : '#185FA5')}}
+          <b>${{s.pct.toFixed(1)}}%</b></div>`).join('');
+      const roles = d.roles.map(r => `
+        <div style="display:flex;gap:9px;align-items:center;font-size:11.5px;margin-bottom:3px">
+          <span style="width:110px">${{r.role}}</span>
+          ${{bar(r.pct, '#0F6E56')}}
+          <b>${{r.pct.toFixed(1)}}%</b>
+          <span style="color:#898781;font-size:10px">${{r.tickers.join(' ')}}</span></div>`).join('');
+      const stocks = d.stocks.slice(0, 8).map(s => `
+        <tr><td><b>${{s.ticker}}</b></td>
+          <td style="font-size:11px">${{s.name || ''}}</td>
+          <td style="text-align:right;font-weight:600">≥${{s.pct.toFixed(2)}}%</td>
+          <td style="font-size:10px;color:#898781">${{s.via.join(', ')}}</td></tr>`).join('');
+      // The floor caveat travels with the number, every time it is shown.
+      const coverage = `<div style="font-size:11px;color:#633806;background:#FAEEDA;
+        border-radius:8px;padding:8px 11px;margin-top:8px">
+        Single-company figures are a <b>floor</b>, not a measurement: only
+        <b>${{d.coverage.toFixed(1)}}%</b> of this portfolio's holdings are published
+        by the fund providers. A company held inside the undisclosed remainder
+        adds to the real number — it can never be lower.</div>`;
+      const unknown = d.unknown_pct > 0 ? `<div style="font-size:11px;color:#791F1F;
+        margin-top:6px">${{d.unknown_pct.toFixed(1)}}% of the portfolio has no sector
+        data — use <b>Refresh ETFs</b>.</div>` : '';
+      return `<div style="background:white;border:0.5px solid #e1e0d9;border-radius:10px;
+        padding:14px 16px;margin-bottom:14px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+          <div><div style="font-size:11px;font-weight:700;color:#898781;
+            text-transform:uppercase;margin-bottom:7px">Sector exposure (exact)</div>
+            ${{sectors}}${{unknown}}</div>
+          <div><div style="font-size:11px;font-weight:700;color:#898781;
+            text-transform:uppercase;margin-bottom:7px">Risk checks</div>${{alerts}}</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:16px">
+          <div><div style="font-size:11px;font-weight:700;color:#898781;
+            text-transform:uppercase;margin-bottom:7px">Portfolio role</div>${{roles}}</div>
+          <div><div style="font-size:11px;font-weight:700;color:#898781;
+            text-transform:uppercase;margin-bottom:7px">Single-company look-through</div>
+            <table><tbody>${{stocks}}</tbody></table></div>
+        </div>
+        ${{coverage}}</div>`;
+    }}
+
+    // Level plus the signed distance from it — "$451.59" alone makes you do
+    // the arithmetic against price; "+28.4%" is the thing you were after.
+    // Green above / red below reads directly for the moving averages; for
+    // the 52-week high a negative distance is normal, so it stays neutral.
+    function etfLevel(level, dist) {{
+      if (level == null) return '—';
+      const px = '$' + Number(level).toFixed(2);
+      if (dist == null) return px;
+      const c = dist > 0 ? '#0F6E56' : dist < 0 ? '#A32D2D' : '#898781';
+      return `${{px}}<br><span style="font-size:9.5px;color:${{c}}">${{
+        dist > 0 ? '+' : ''}}${{Number(dist).toFixed(1)}}%</span>`;
+    }}
+
+    // Benchmarks in the order given, so the reference strip reads
+    // large-cap → tech → industrials → small → mid → total-market rather
+    // than alphabetically.
+    const ETF_BENCH_ORDER = ['SPY', 'VOO', 'QQQ', 'QQQM', 'DIA', 'MDY', 'IWM',
+                             'VTI', '^VIX'];
+    // VIX rises when the market falls, so "up = green" would paint a fear
+    // spike as strength. Its colours are flipped and its distance-from-200
+    // is labelled as fear rather than trend.
+    const ETF_INVERTED = new Set(['^VIX']);
+
+    // Trend is measured against the 200-day, not today's close — see
+    // core/market_regime.benchmark_leadership for why.
+    function etfLeadershipBanner() {{
+      const L = ETF_LEADERSHIP;
+      if (!L) return '';
+      const tone = {{good: ['#E1F5EE', '#085041'], watch: ['#FAEEDA', '#633806'],
+                     bad: ['#FCEBEB', '#791F1F'], muted: ['#f1efea', '#52514e']}};
+      const [bg, fg] = tone[L.tone] || tone.muted;
+      const legs = (L.legs || []).map(l =>
+        `<span style="margin-right:12px">${{l.ticker}}
+          <b style="color:${{l.above_200ma ? '#0F6E56' : '#A32D2D'}}">${{
+            l.above_200ma ? '↑' : '↓'}} ${{l.dist_ma200 > 0 ? '+' : ''}}${{
+            l.dist_ma200.toFixed(1)}}%</b></span>`).join('');
+      const missing = (L.missing || []).length
+        ? `<div style="margin-top:4px;font-size:10px">No 200-day data for
+           ${{L.missing.join(', ')}} — this read is based on the rest.</div>` : '';
+      return `<div style="background:${{bg}};color:${{fg}};border-radius:9px;
+        padding:9px 12px;margin-bottom:9px;font-size:11.5px">
+        <b>${{L.verdict}}</b> — ${{L.detail}}
+        <div style="margin-top:5px;font-size:10.5px;opacity:.85">${{legs}}
+          <span style="opacity:.7">vs 200-day</span></div>${{missing}}</div>`;
+    }}
+
+    function renderEtfBenchmarks(rows) {{
+      if (!rows || !rows.length) return '';
+      const cell = r => {{
+        const chg = r.etf_change_pct;
+        const inv = ETF_INVERTED.has(r.ticker);
+        const up = '#0F6E56', down = '#A32D2D';
+        const c = chg > 0 ? (inv ? down : up) : chg < 0 ? (inv ? up : down) : '#898781';
+        const held = r.is_holding
+          ? ' <span style="font-size:9px;color:#8a6d1a" title="Also one of your positions">held</span>' : '';
+        return `<div style="flex:0 0 auto;min-width:118px;background:#faf9f5;
+          border:0.5px solid #e1e0d9;border-radius:9px;padding:8px 11px">
+          <div style="font-size:12px;font-weight:700">${{r.ticker.replace('^','')}}${{held}}</div>
+          <div style="font-size:14px;font-weight:600;margin:1px 0">${{fmtMoney(r.price)}}</div>
+          <div style="font-size:11px;font-weight:600;color:${{c}}">${{
+            chg == null ? '—' : (chg > 0 ? '+' : '') + chg.toFixed(2) + '%'}}</div>
+          <div style="font-size:9.5px;color:#898781;margin-top:2px">${{
+            inv
+              ? (r.etf_dist_ma200 == null ? 'vs200 —'
+                 : (r.etf_dist_ma200 < 0 ? 'calm' : 'elevated') + ' · ' +
+                   (r.etf_dist_ma200 > 0 ? '+' : '') + r.etf_dist_ma200.toFixed(0) +
+                   '% vs 200d')
+              : 'YTD ' + (r.etf_ytd_return == null ? '—' : r.etf_ytd_return.toFixed(1) + '%') +
+                ' · vs200 ' + (r.etf_dist_ma200 == null ? '—' :
+                  (r.etf_dist_ma200 > 0 ? '+' : '') + r.etf_dist_ma200.toFixed(1) + '%')
+          }}</div>
+        </div>`;
+      }};
+      return `<div style="margin-bottom:14px">
+        <div style="font-size:11px;font-weight:700;color:#898781;
+          text-transform:uppercase;letter-spacing:.3px;margin-bottom:7px">
+          Benchmarks — reference only, not positions</div>
+        ${{etfLeadershipBanner()}}
+        <div style="display:flex;gap:8px;flex-wrap:wrap">${{rows.map(cell).join('')}}</div>
+      </div>`;
+    }}
+
+    function renderEtfTable(rows, root) {{
+      if (!rows.length) {{
+        root.innerHTML = '<div style="padding:24px;text-align:center;color:#898781;' +
+          'font-size:12px">No ETFs match the current filters.</div>';
+        return;
+      }}
+      // Column definitions keyed rather than positional, so drag-to-reorder
+      // can emit them in any order. `cell` returns the <td> contents; the
+      // width/resize plumbing is shared with the equity table above (keys
+      // are distinct, so colWidths can hold both without collision).
+      const ETF_COLS = [
+        ['ticker', 'Ticker', r => r.not_scanned
+          ? `<b title="Profile only — no scan has picked this up yet, so it has no technicals">${{r.ticker}}</b>
+             <span style="font-size:9px;color:#8a6d1a"> new</span>`
+          : `<a href="/research/${{r.ticker}}.html"><b>${{r.ticker}}</b></a>`],
+        ['etf_theme_name', 'Theme', r => etfThemeCell(r)],
+        ['etf_family', 'Family', r =>
+          `<span style="color:#898781">${{r.etf_family || '—'}}</span>`],
+        ['price', 'Price', r => fmtMoney(r.price)],
+        ['etf_change_pct', 'Chg today', r =>
+          fmtEtfChange(r.etf_change_pct, r.etf_change_abs, r.etf_quote_at)],
+        ['etf_expense_ratio', 'Expense', r => fmtEtfPct(r.etf_expense_ratio)],
+        ['etf_aum', 'AUM', r => fmtCap(r.etf_aum)],
+        ['etf_ytd_return', 'YTD', r =>
+          `<span style="color:${{(r.etf_ytd_return ?? 0) >= 0 ? '#0F6E56' : '#A32D2D'}}">${{
+            fmtEtfPct(r.etf_ytd_return, 1)}}</span>`],
+        ['etf_yield_pct', 'Yield', r => fmtEtfPct(r.etf_yield_pct, 2)],
+        ['etf_ema8', '8 EMA', r => etfLevel(r.etf_ema8, r.etf_dist_ema8)],
+        ['etf_ma50', '50 MA', r => etfLevel(r.etf_ma50, r.etf_dist_ma50)],
+        ['etf_ma200', '200 MA', r => etfLevel(r.etf_ma200, r.etf_dist_ma200)],
+        ['etf_week52_high', '52W high', r =>
+          etfLevel(r.etf_week52_high, r.etf_dist_52w_high)],
+        ['etf_week52_low', '52W low', r =>
+          etfLevel(r.etf_week52_low, r.etf_dist_52w_low)],
+        ['etf_top10_weight', 'Disclosed', r => etfDisclosedCell(r)],
+        ['etf_holdings_count', 'Top holdings', r => {{
+          const hs = r.etf_holdings || [];
+          // A commodity trust holds bullion, not equities — no holdings is a
+          // correct answer for GLD/SLV, not a fetch failure.
+          return hs.length
+            ? `<button class="btn secondary" style="font-size:10px;padding:3px 9px"
+                 onclick="showEtfHoldings('${{r.ticker}}')">${{hs.length}} holdings</button>
+               <span style="font-size:10px;color:#898781;margin-left:6px">${{
+                 hs.slice(0, 3).map(h => h.ticker + ' ' + fmtEtfPct(h.weight, 1)).join(' · ')}}</span>`
+            : '<span style="font-size:10px;color:#898781">physical / not published</span>';
+        }}],
+        ['_alloc', 'Weight %', r =>
+          `<input type="number" min="0" max="100" step="0.5"
+             id="alloc-${{r.ticker}}" value="${{ETF_ALLOC[r.ticker] ?? ''}}"
+             oninput="onAllocInput('${{r.ticker}}', this.value)"
+             style="width:62px;font-size:11px;padding:2px 5px">`],
+      ];
+      const ETF_COL_BY_KEY = {{}};
+      ETF_COLS.forEach(c => {{ ETF_COL_BY_KEY[c[0]] = c; }});
+      // Drop keys that no longer exist and append ones added since the order
+      // was saved, so a stored order never hides a new column.
+      etfColOrder = etfColOrder.filter(k => ETF_COL_BY_KEY[k]);
+      ETF_COLS.forEach(c => {{ if (!etfColOrder.includes(c[0])) etfColOrder.push(c[0]); }});
+
+      // Benchmarks render as a reference strip above the holdings table.
+      // IWM and VTI stay in BOTH: they are genuinely a holding and an index,
+      // and dropping either from the holdings table would hide a real
+      // position just because it doubles as a yardstick.
+      const benchRows = ETF_BENCH_ORDER
+        .map(t => rows.find(r => r.ticker === t)).filter(Boolean);
+      rows = rows.filter(r => r.is_holding);
+
+      rows = sortEtfRows(rows);
+      const head = etfColOrder.map(key => {{
+        const [, label] = ETF_COL_BY_KEY[key];
+        const w = colW(key, label);
+        const sizing = colWidths[key] != null
+          ? `width:${{w}}px;max-width:${{w}}px` : `max-width:${{w}}px`;
+        const arrow = etfSortKey === key ? (etfSortDir > 0 ? ' ▲' : ' ▼') : '';
+        return `<th draggable="true" style="cursor:grab;white-space:nowrap;position:relative"
+          title="Click to sort · drag to reorder · drag right edge to resize"
+          onclick="setEtfSort('${{key}}')"
+          ondragstart="onEtfColDragStart(event,'${{key}}')" ondragend="onColDragEnd(event)"
+          ondragover="onColDragOver(event)" ondragenter="onColDragEnter(event)"
+          ondragleave="onColDragLeave(event)" ondrop="onEtfColDrop(event,'${{key}}')"
+          ><span style="display:inline-block;${{sizing}};overflow:hidden;
+            text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom">${{label}}${{arrow}}</span>
+          <span class="col-resizer" draggable="false"
+            onmousedown="onColResizeStart(event,'${{key}}')"
+            onclick="event.stopPropagation()"></span></th>`;
+      }}).join('');
+      const body = rows.map(r => '<tr>' + etfColOrder.map(key => {{
+        const [, label, cell] = ETF_COL_BY_KEY[key];
+        const w = colW(key, label);
+        const sizing = colWidths[key] != null
+          ? `width:${{w}}px;max-width:${{w}}px` : `max-width:${{w}}px`;
+        return `<td><span style="display:inline-block;${{sizing}};overflow:hidden;
+          text-overflow:ellipsis;vertical-align:bottom">${{cell(r)}}</span></td>`;
+      }}).join('') + '</tr>').join('');
+      root.innerHTML = `
+        ${{etfPortfolioBar()}}
+        <div id="etf-report"></div>
+        ${{renderEtfBenchmarks(benchRows)}}
+        <div style="font-size:11px;color:#898781;margin-bottom:8px">
+          Fund-specific fields — margins, EPS growth and moat don't exist for an
+          ETF, so the equity columns are hidden here rather than shown empty.
+          Expense ratio and AUM come from the fund profile
+          (<b>Refresh ETFs</b> to update), including the price levels — those are fetched per fund, so a newly added ETF has them before any scan runs.
+          <b>Click a theme to rename it</b> — your label is kept separately from the
+          provider's category, so a refresh won't overwrite it. Blank resets it.
+        </div>
+        <table><thead><tr>${{head}}</tr></thead>
+        <tbody>${{body}}</tbody></table>`;
+    }}
+    function showEtfHoldings(ticker) {{
+      const r = RESEARCH_ROWS.find(x => x.ticker === ticker);
+      if (!r) return;
+      const hs = r.etf_holdings || [];
+      document.getElementById('etf-modal-title').textContent =
+        `${{ticker}} — top ${{hs.length}} published holdings`;
+      document.getElementById('etf-modal-body').innerHTML = `
+        <div style="font-size:11px;color:#898781;margin-bottom:10px">
+          ${{r.etf_theme_name || r.etf_category || ''}}${{r.etf_family ? ' · ' + r.etf_family : ''}}
+          ${{r.etf_top10_weight != null ? ' · top 10 = ' + fmtEtfPct(r.etf_top10_weight, 1)
+             + ' of the fund' : ''}}
+        </div>
+        <table><thead><tr><th>#</th><th>Ticker</th><th>Name</th>
+          <th style="text-align:right">Weight</th></tr></thead><tbody>
+        ${{hs.map((h, i) => `<tr><td style="color:#898781">${{i + 1}}</td>
+          <td><a href="/research/${{h.ticker}}.html"><b>${{h.ticker}}</b></a></td>
+          <td style="font-size:11px">${{h.name || ''}}</td>
+          <td style="text-align:right;font-weight:600">${{fmtEtfPct(h.weight)}}</td></tr>`).join('')}}
+        </tbody></table>
+        ${{etfCoverageNote(r)}}
+        ${{r.etf_theme ? `<div style="margin-top:12px;font-size:11px;line-height:1.5;
+          color:#52514e"><b>Built on:</b> ${{r.etf_theme}}</div>` : ''}}`;
+      openModal('etf-modal');
+    }}
+
     function filteredRows() {{
       const q = document.getElementById('rsearch').value.trim().toUpperCase();
       const watchSelected = Array.from(document.getElementById('rwatch').selectedOptions).map(o => o.value);
@@ -1513,7 +2512,48 @@ def research_page() -> tuple[str, str]:
       return RESEARCH_ROWS.filter(r =>
         (!q || r.ticker.includes(q) || (r.sector || '').toUpperCase().includes(q)) &&
         (!watchTickers || watchTickers.has(r.ticker)) &&
-        (!actionFilter || r.conv_action === actionFilter));
+        (!presetTickers || presetTickers.has(r.ticker)) &&
+        (!actionFilter || (actionFilter === 'NODATA' ? r.no_data
+                           : actionFilter === 'ETF' ? r.is_etf
+                           : r.conv_action === actionFilter)));
+    }}
+
+    // ── Screener presets ───────────────────────────────────────────────────
+    // The preset is evaluated by /api/screen — the same engine the Screener
+    // page uses — and only the resulting ticker set is applied here. Doing
+    // the comparisons in JS instead would mean a second implementation of
+    // every operator and threshold, free to drift from the first.
+    let presetTickers = null;      // null = no preset filter
+    async function applyResearchPreset(key) {{
+      const label = document.getElementById('rpreset-info');
+      if (!key) {{
+        presetTickers = null;
+        label.textContent = '';
+        renderResearch();
+        return;
+      }}
+      label.textContent = 'running…';
+      try {{
+        const res = await fetch('/api/screen', {{
+          method: 'POST',
+          body: JSON.stringify({{ preset: key, limit: 5000, sort: 'match' }}),
+        }});
+        const data = await res.json();
+        if (!data.ok) {{ toast(data.message || 'Screen failed', 'err'); label.textContent = ''; return; }}
+        presetTickers = new Set(data.results.map(r => r.ticker));
+        // The Screener excludes tickers with no quote, so a preset can match
+        // names this table no longer lists; report what actually landed.
+        // This counts the screen against the whole library. The table's own
+        // count can be lower because the search, watchlist and Action
+        // filters still apply on top — saying just "14" next to a table
+        // showing 9 reads like one of them is wrong.
+        const shown = RESEARCH_ROWS.filter(r => presetTickers.has(r.ticker)).length;
+        label.textContent = `${{shown}} in library match this screen`;
+        renderResearch();
+      }} catch (e) {{
+        toast('Preset failed: ' + e, 'err');
+        label.textContent = '';
+      }}
     }}
     function renderResearch() {{
       renderActionTabs();
@@ -1521,6 +2561,11 @@ def research_page() -> tuple[str, str]:
       let rows = filteredRows();
       document.getElementById('rcount').textContent = rows.length;
       const root = document.getElementById('research-root');
+      // The ETF tab replaces the table rather than filtering it: a fund has
+      // no margins, EPS or moat, so 20 of the 24 equity columns would be
+      // dashes and the four that matter (theme, cost, size, holdings) have
+      // nowhere to go.
+      if (actionFilter === 'ETF') {{ renderEtfTable(rows, root); return; }}
       if (view === 'grouped') {{
         const bySec = {{}};
         rows.forEach(r => {{ const s = r.sector || 'Unknown'; (bySec[s] = bySec[s] || []).push(r); }});
@@ -1723,11 +2768,14 @@ def research_page() -> tuple[str, str]:
       if (t) {{
         document.getElementById('rsearch').value = t;
       }} else {{
-        // default view = the "watchlist" category, not all 562 tickers —
-        // skipped for deep links (the target may not be in the watchlist)
+        // Default view = every ticker, no category filter. This used to
+        // preselect the "watchlist" category, which quietly hid most of the
+        // library — including ETFs that aren't on that list, so the ETF tab
+        // showed 12 of 16. Browsers also restore <select> state across a
+        // reload, so the selection is cleared explicitly rather than just
+        // left unset.
         const wsel = document.getElementById('rwatch');
-        const opt = Array.from(wsel.options).find(o => o.value === 'watchlist');
-        if (opt) opt.selected = true;
+        if (wsel) wsel.selectedIndex = -1;
       }}
       renderResearch();
     }});
@@ -2788,6 +3836,7 @@ def alerts_page() -> tuple[str, str]:
 
     toolbar = (
         _toolbar_form("watchlist_scan", "Scan Watchlist Now")
+        + _toolbar_form("longterm_entry_scan", "Check Entry Levels Now")
         + _toolbar_form("news_scan", "Scan News Now")
         + _toolbar_form("earnings_scan", "Check Earnings Now")
         # runs the scheduler's day-session init (movers merge) on demand and
@@ -2799,6 +3848,23 @@ def alerts_page() -> tuple[str, str]:
            f'Init Day Universe Now</button></form> ')
         + _toolbar_form("premarket_brief", "Generate Brief Now", primary=True)
     )
+
+    # A mute you can only detect by NOT receiving mail is a bad mute. Said
+    # here, next to the alerts it applies to, rather than only in a comment.
+    allowed = alerts_mod.notify_categories()
+    if allowed is None:
+        mute_note = ""
+    else:
+        kept = (", ".join(sorted(allowed)) if allowed else "none")
+        mute_note = (
+            f'<div style="font-size:11px;padding:9px 13px;border-radius:9px;'
+            f'margin-bottom:12px;background:#E6F1FB;color:#0C447C;'
+            f'border:0.5px solid #cfe0f2">🔕 <b>Email/Telegram muted</b> for '
+            f'the alert digest — pushing categories: <b>{esc(kept)}</b>. '
+            f'Alerts below are unaffected: they still fire, dedup and log. '
+            f'The Pre-Market Brief, Market Movers and “Longterm swing trades” '
+            f'emails have their own channels and still send. Set '
+            f'<code>ALERT_NOTIFY_CATEGORIES=all</code> to unmute.</div>')
 
     if not active_alerts:
         active_html = empty("No active alerts — conditions are being checked every 10 minutes "
@@ -2849,19 +3915,21 @@ def alerts_page() -> tuple[str, str]:
         f'border-radius:8px;padding:10px 14px">{_premarket_brief_html(brief)}</div>')
 
     body = (
-        card("Active Alerts", active_html, "🔔", right=toolbar)
+        card("Active Alerts", mute_note + active_html, "🔔", right=toolbar)
         + card("Latest Pre-Market Brief", brief_html, "📰")
         + card("Recent Alert Log", log_html, "🗒️")
     )
     extra_js = (
         "function onJobFinished(j) { if (['watchlist_scan', 'news_scan', 'earnings_scan', "
-        "'premarket_brief'].includes(j.kind) || j.kind.startsWith('cron:')) "
+        "'longterm_entry_scan', 'premarket_brief'].includes(j.kind) "
+        "|| j.kind.startsWith('cron:')) "
         "setTimeout(() => location.reload(), 1200); }\n"
         "const ALERT_LOG_ROWS = " + log_json + ";\n"
         + """
     const ALERT_CAT_LABELS = {earnings: 'Earnings', news: 'News Catalyst',
       watchlist: 'Technical', put_setup: 'Put Setup', call_setup: 'Call Setup',
-      a_plus_setup: 'A+ Setup', other: 'Other'};
+      a_plus_setup: 'A+ Setup', longterm_entry: 'Entry Reached',
+      other: 'Other'};
     function alertCards() {
       return Array.from(document.querySelectorAll('#active-alerts-box .alert-card'));
     }
@@ -3122,12 +4190,17 @@ def _premarket_brief_html(brief: dict | None) -> str:
 def automation_page() -> tuple[str, str]:
     from stockanalysis.reporting.portfolio import PORTFOLIO_VALUE, SMALLCAP_MAX_PCT
     from stockanalysis.scheduling.schedule_config import (
-        JOB_DEFS, load_config, describe_spec)
+        JOB_DEFS, SETTINGS_DEFS, load_config, load_settings, describe_spec)
     from urllib.parse import urlencode
     from stockanalysis.scheduling.scheduler import SCHEDULED_JOBS
+    # The module, not the flag: LOGIN_GATE is set at server startup, and a
+    # `from ... import LOGIN_GATE` would bind whatever it was when this
+    # function was first imported.
+    from stockanalysis.scheduling import scheduler as scheduler_mod
 
     alive = jobstore.scheduler_alive()
     cfg = load_config()
+    settings = load_settings()
 
     # function name -> earliest next-run string (scheduler_jobs is sorted by
     # next_run, so the first occurrence per name wins); also collect jobs the
@@ -3235,8 +4308,41 @@ def automation_page() -> tuple[str, str]:
           'Start the app without <code>--no-scheduler</code> to enable automatic scans — '
           'schedule edits below still save and apply on next start.</span>'
     )
+    # Sign-out gate. Only meaningful when this server requires a login: with
+    # --no-auth (or scheduler.py standalone) there are no sessions to count,
+    # so say that instead of showing a switch that changes nothing.
+    gate_meta = SETTINGS_DEFS["run_when_logged_out"]
+    gate_off = bool(settings["run_when_logged_out"])   # True = never pause
+    if not scheduler_mod.LOGIN_GATE:
+        gate_html = (
+            '<div style="font-size:11px;color:#898781;margin-top:10px;'
+            'border-top:1px solid #e6e4df;padding-top:10px">'
+            + badge("ALWAYS ON", "muted", "small")
+            + ' This server runs without a login (<code>--no-auth</code>), so there '
+              'is no sign-out to pause on — automation runs whenever the scheduler '
+              'is up.</div>')
+    else:
+        gate_html = (
+            '<div style="margin-top:10px;border-top:1px solid #e6e4df;padding-top:10px">'
+            + (badge("ALWAYS ON", "watch", "small") if gate_off
+               else badge("PAUSES AT SIGN-OUT", "good", "small"))
+            + '<form style="display:inline-flex;align-items:center;gap:8px;margin:0 0 0 10px" '
+              'onsubmit="saveSchedSettings(event, this); return false;">'
+              '<label style="font-size:12px;display:inline-flex;align-items:center;gap:6px">'
+              '<input type="checkbox" name="run_when_logged_out"'
+            + (' checked' if gate_off else '') + '>'
+            + esc(gate_meta["label"]) + '</label>'
+              '<button class="btn secondary" style="font-size:10px;padding:2px 8px">Save</button>'
+              '</form>'
+              '<div style="font-size:10px;color:#898781;max-width:720px;margin-top:6px">'
+            + esc(gate_meta["description"])
+            + ' Sessions live in memory only, so a server restart also counts as '
+              'nobody being signed in: with this off, automation stays paused after '
+              'a restart until you open the tool and sign in.</div></div>')
+
     scheduler_html = (
         status_html
+        + gate_html
         + '<div style="font-size:11px;color:#898781;margin-top:8px">'
           'All automated jobs, from data/schedule_config.json. Edit a row and Save to '
           'change its frequency (daily = comma-separated ET times, e.g. "09:30, 15:30"; '
@@ -3328,6 +4434,22 @@ def automation_page() -> tuple[str, str]:
       const daily = sel.value === 'daily';
       form.querySelector('[name="times"]').style.display = daily ? '' : 'none';
       form.querySelector('.sched-minutes-wrap').style.display = daily ? 'none' : 'inline-flex';
+    }
+    async function saveSchedSettings(event, form) {
+      event.preventDefault();
+      // Unchecked checkboxes post nothing, so send the flag explicitly —
+      // save_settings() leaves out-of-form keys alone, and an omitted key
+      // would read as "no change" instead of "turn it off".
+      const params = new URLSearchParams();
+      params.set('run_when_logged_out',
+                 form.querySelector('[name="run_when_logged_out"]').checked ? 'on' : 'off');
+      try {
+        const res = await fetch('/api/schedule/settings', { method: 'POST', body: params });
+        const data = await res.json();
+        toast(data.message || (data.ok ? 'Saved' : 'Save failed'), data.ok ? 'ok' : 'err');
+        if (data.ok) setTimeout(() => location.reload(), 900);
+      } catch (e) { toast('Request failed: ' + e, 'err'); }
+      return false;
     }
     async function saveSchedule(event, form) {
       event.preventDefault();

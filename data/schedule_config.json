@@ -85,5 +85,12 @@
   "times": [
    "23:30"
   ]
+ },
+ "research_postmarket": {
+  "enabled": true,
+  "type": "daily",
+  "times": [
+   "16:45"
+  ]
  }
 }

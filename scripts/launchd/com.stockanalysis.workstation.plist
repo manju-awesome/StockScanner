@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  com.stockanalysis.workstation — keep the trading workstation running
+  ====================================================================
+  A user LaunchAgent (gui/<uid>), not a system daemon: it needs your login
+  session, your keychain and your home directory, and it has no business
+  running while you are logged out.
+
+  It runs scripts/launchd/run_workstation.sh, which owns the interesting
+  decisions — one process only, Secure cookies, staying awake. See that file.
+
+  No secrets here on purpose: a plist in ~/Library/LaunchAgents is
+  world-readable, and the scheduler reads .env off disk itself.
+
+  Install / remove / restart:
+    cp scripts/launchd/com.stockanalysis.workstation.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.stockanalysis.workstation.plist
+    launchctl bootout   gui/$(id -u)/com.stockanalysis.workstation
+    launchctl kickstart -k gui/$(id -u)/com.stockanalysis.workstation
+  Copy it again after editing — launchd reads the copy, not the repo.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.stockanalysis.workstation</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/manju/Documents/Claude_projects/July01-2027/StockAnalysis_Version1/scripts/launchd/run_workstation.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/manju/Documents/Claude_projects/July01-2027/StockAnalysis_Version1</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Restart on a crash, but NOT on a clean exit. That distinction is what
+       makes the wrapper's "another copy is already running" exit 0 stick:
+       treating it as failure would put launchd in a restart loop against a
+       server that is working fine. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+
+  <!-- A crash loop should be visible in the log, not a fork bomb. -->
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- launchd gives a job almost no PATH; caffeinate, lsof and pgrep in the
+         wrapper all need one. -->
+    <key>PATH</key>
+    <string>/Library/Frameworks/Python.framework/Versions/3.14/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <!-- Market hours are Eastern, and the scan scheduler decides what to run
+         from the clock. Same TZ the server is started with by hand today. -->
+    <key>TZ</key>
+    <string>America/New_York</string>
+    <!-- Behind `tailscale serve`, so the session cookie is marked Secure.
+         While this is 1, http://localhost:8899 cannot sign in — reach the
+         tool through the HTTPS tailnet URL. -->
+    <key>WORKSTATION_BEHIND_TLS</key>
+    <string>1</string>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/manju/Library/Logs/StockAnalysis/workstation.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/manju/Library/Logs/StockAnalysis/workstation.err.log</string>
+</dict>
+</plist>
