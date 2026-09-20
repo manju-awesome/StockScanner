@@ -1,0 +1,6 @@
+{
+  "capital": 100000.0,
+  "risk_pct": 2.0,
+  "max_allocation_pct": 20.0,
+  "atr_multiplier": 2.0
+}

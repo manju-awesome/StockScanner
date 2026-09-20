@@ -79,12 +79,29 @@ COLUMN_ORDER = [
     # Gate
     "Entry_Gate_Pass", "Entry_Gate_Reason",
 
+    # Long-term engine (core.longterm). Appended rather than interleaved so
+    # the column layout of existing saved scans is unchanged. Being listed
+    # here at all matters: any key NOT in COLUMN_ORDER is written as an
+    # "extra", and extras are prepended — which would put twenty new columns
+    # ahead of Ticker in every spreadsheet.
+    "MA50_Slope%", "MA200_Slope%", "Reversal_Candle",
+    "Distribution_Days_25d", "Prior_Breakout_Level",
+    "FreeCashFlow", "NetIncome", "SharesOutstanding", "Beta",
+    "TotalRevenue", "EnterpriseValue", "EBITDA", "EV_EBITDA", "PriceToBook",
+    "FCF_CAGR%", "FCF_Years", "FCF_Positive_Years", "Revenue_CAGR%",
+    "OperatingMargin_Trend_pp", "GrossMargin_Trend_pp", "Fundamentals_As_Of",
 ]
 
 # Columns to exclude from the CSV (internal calc helpers)
 _EXCLUDE = {"_prior_52w_high", "_prior_52w_low",
-           "BusinessSummary"}  # full paragraph text — belongs on the research
-                              # page (research.py), not a scan CSV column
+           "BusinessSummary",  # full paragraph text — belongs on the research
+                               # page (research.py), not a scan CSV column
+           # Multi-year statement series from core.longterm.fundamentals: a
+           # list in a spreadsheet cell is a Python repr nobody can sort or
+           # filter on. The scalars derived from them (FCF_CAGR%,
+           # OperatingMargin_Trend_pp) are columns above, and the full
+           # series stay in research_index.json.
+           "FCF_History", "OperatingMargin_History", "GrossMargin_History"}
 
 
 def _fmt(value) -> str:

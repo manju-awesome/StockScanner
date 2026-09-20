@@ -259,21 +259,31 @@ def _52w_low(row: dict) -> dict | None:
                          "price": row.get("Current Price")})
 
 
-PUT_SCORE_ALERT_MIN = 8      # exclusive — Put_Score must EXCEED this to alert
+# Inclusive: Put_Score >= this alerts. Scores are integers, so the previous
+# "> 8" was the same cut — spelled inclusively here because the threshold is
+# now stated as a rule ("9 or better is critical") rather than an offset.
+PUT_SCORE_ALERT_MIN = 9
 
 
 def _put_score_high(row: dict) -> dict | None:
-    """Put_Score > PUT_SCORE_ALERT_MIN: a rare, high-conviction bearish
+    """Put_Score >= PUT_SCORE_ALERT_MIN: a rare, high-conviction bearish
     setup (raw additive score, observed range ≈ -1..10; disqualified names
     are forced to 0 upstream, so a high score is never a disqualified one).
-    HIGH priority — emails and lands in the ALERT_TICKERS watchlist."""
+
+    CRITICAL rather than HIGH: both tiers email and push, but CRITICAL sorts
+    first in the digest and renders as urgent. At 9+ the score is at the top
+    of its range and rare — a handful of names across the whole library — so
+    burying it in routine HIGH traffic is the wrong default. Raised by every
+    scan AND every research-library refresh, so whichever run sees it first
+    fires it; alerts.raise_alerts dedups the rest.
+    """
     score = _num(row, "Put_Score")
-    if score is None or score <= PUT_SCORE_ALERT_MIN:
+    if score is None or score < PUT_SCORE_ALERT_MIN:
         return None
     ticker = row["Ticker"]
     reason = row.get("Put_Reason") or "multiple bearish factors aligned"
     return alerts.make_alert(
-        dedup_key=f"{ticker}:put_score_high", category="put_setup", priority="HIGH",
+        dedup_key=f"{ticker}:put_score_high", category="put_setup", priority="CRITICAL",
         ticker=ticker, headline=f"put setup score {score:.0f} — high-conviction bearish",
         why_it_matters=f"Put screen factors stacking up: {reason}",
         expected_impact="Downside continuation is the base case while the score holds this high.",
@@ -285,21 +295,22 @@ def _put_score_high(row: dict) -> dict | None:
                          "price": row.get("Current Price")})
 
 
-CALL_SCORE_ALERT_MIN = 8     # exclusive — a stricter bar than the module's
-                             # own STRONG tier (Call_Score >= 7), same cut as puts
+CALL_SCORE_ALERT_MIN = 9     # inclusive, same cut as puts — a stricter bar
+                             # than the module's own STRONG tier (>= 7)
 
 
 def _call_score_high(row: dict) -> dict | None:
-    """Call_Score > CALL_SCORE_ALERT_MIN: high-conviction turnaround call
+    """Call_Score >= CALL_SCORE_ALERT_MIN: high-conviction turnaround call
     setup (additive score, STRONG tier starts at 7; disqualified names are
-    zeroed upstream). HIGH priority — emails and lands in ALERT_TICKERS."""
+    zeroed upstream). CRITICAL for the same reason as the put rule — see
+    _put_score_high."""
     score = _num(row, "Call_Score")
-    if score is None or score <= CALL_SCORE_ALERT_MIN:
+    if score is None or score < CALL_SCORE_ALERT_MIN:
         return None
     ticker = row["Ticker"]
     reason = row.get("Call_Reason") or "multiple turnaround factors aligned"
     return alerts.make_alert(
-        dedup_key=f"{ticker}:call_score_high", category="call_setup", priority="HIGH",
+        dedup_key=f"{ticker}:call_score_high", category="call_setup", priority="CRITICAL",
         ticker=ticker, headline=f"call setup score {score:.0f} — high-conviction turnaround",
         why_it_matters=f"Call screen factors stacking up: {reason}",
         expected_impact="Asymmetric upside if the reversal holds — defined risk via premium.",

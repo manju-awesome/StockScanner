@@ -1852,6 +1852,31 @@ def _safe_report_name(name: str) -> str:
     return cleaned or "dashboard"
 
 
+# A generated report is a standalone file the webapp Dashboard links to as
+# /<universe>Report_<ts>.html, so following that link leaves the app with no
+# way back. Kept as a module constant with inline styles and no external
+# dependencies so scripts/add_report_back_link.py can inject the identical
+# markup into reports generated before this existed.
+#
+# href="/" is what the webapp serves the Dashboard from; the onclick prefers
+# history.back() when the page was actually navigated to, which keeps the
+# control working for reports opened straight off disk (file://) or through
+# the plain http.server on 8788, where "/" is not the Dashboard.
+BACK_LINK_MARKER = 'id="back-to-dashboard"'
+BACK_TO_DASHBOARD_HTML = (
+    '<style>@media print{#back-to-dashboard{display:none}}</style>'
+    f'<div {BACK_LINK_MARKER} style="position:sticky;top:0;z-index:50;'
+    'background:#f5f4f0;padding:10px 0 12px">'
+    '<a href="/" onclick="if(document.referrer&&history.length>1)'
+    '{history.back();return false;}" '
+    'style="display:inline-flex;align-items:center;gap:7px;font-size:12px;'
+    'font-weight:600;text-decoration:none;color:#0C447C;background:#fff;'
+    'border:0.5px solid #d9d7ce;border-radius:6px;padding:7px 13px">'
+    '<span style="font-size:15px;line-height:1">←</span>'
+    ' Back to Dashboard</a></div>'
+)
+
+
 def generate_dashboard(
     rows: list[dict],
     output_dir: str | Path = ".",
@@ -2062,6 +2087,8 @@ def generate_dashboard(
 </style>
 </head>
 <body>
+
+{BACK_TO_DASHBOARD_HTML}
 
 <h1>Trading Workstation</h1>
 <p class="sub">Generated {run_time} · {total} tickers scanned</p>

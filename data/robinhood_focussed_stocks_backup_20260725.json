@@ -1,0 +1,33 @@
+{
+  "backed_up_at": "2026-07-25",
+  "list": "Focussed_stocks",
+  "list_id": "f14d4bea-95ec-45e4-982a-f93dff6b604f",
+  "note": "State before mirroring to data/watchlists.json['watchlist']. VIX is an index object_type, not an instrument -- to restore it use add_to_watchlist with index_ids (from get_indexes), NOT symbols.",
+  "items": [
+    {"symbol": "AAPL", "object_type": "instrument"}, {"symbol": "NFLX", "object_type": "instrument"},
+    {"symbol": "SLV", "object_type": "instrument"}, {"symbol": "IGV", "object_type": "instrument"},
+    {"symbol": "FTNT", "object_type": "instrument"}, {"symbol": "XLC", "object_type": "instrument"},
+    {"symbol": "CIBR", "object_type": "instrument"}, {"symbol": "SPY", "object_type": "instrument"},
+    {"symbol": "VIX", "object_type": "index", "object_id": "3b912aa2-88f9-4682-8ae3-e39520bdf4db"},
+    {"symbol": "MSFT", "object_type": "instrument"}, {"symbol": "CRWD", "object_type": "instrument"},
+    {"symbol": "IWM", "object_type": "instrument"}, {"symbol": "PANW", "object_type": "instrument"},
+    {"symbol": "PLTR", "object_type": "instrument"}, {"symbol": "NVDA", "object_type": "instrument"},
+    {"symbol": "QQQ", "object_type": "instrument"}, {"symbol": "TXN", "object_type": "instrument"},
+    {"symbol": "META", "object_type": "instrument"}, {"symbol": "ANET", "object_type": "instrument"},
+    {"symbol": "TSLA", "object_type": "instrument"}, {"symbol": "AVGO", "object_type": "instrument"},
+    {"symbol": "TSM", "object_type": "instrument"}, {"symbol": "AMD", "object_type": "instrument"},
+    {"symbol": "SPCX", "object_type": "instrument"}, {"symbol": "VRT", "object_type": "instrument"},
+    {"symbol": "CIEN", "object_type": "instrument"}, {"symbol": "AMAT", "object_type": "instrument"},
+    {"symbol": "LRCX", "object_type": "instrument"}, {"symbol": "INOD", "object_type": "instrument"},
+    {"symbol": "USAR", "object_type": "instrument"}, {"symbol": "HOOD", "object_type": "instrument"},
+    {"symbol": "GLW", "object_type": "instrument"}, {"symbol": "NOK", "object_type": "instrument"},
+    {"symbol": "MU", "object_type": "instrument"}, {"symbol": "MRVL", "object_type": "instrument"},
+    {"symbol": "ARM", "object_type": "instrument"}, {"symbol": "WDC", "object_type": "instrument"},
+    {"symbol": "LITE", "object_type": "instrument"}, {"symbol": "INTC", "object_type": "instrument"},
+    {"symbol": "IREN", "object_type": "instrument"}, {"symbol": "RKLB", "object_type": "instrument"},
+    {"symbol": "POET", "object_type": "instrument"}, {"symbol": "DRAM", "object_type": "instrument"},
+    {"symbol": "CRDO", "object_type": "instrument"}, {"symbol": "COHR", "object_type": "instrument"},
+    {"symbol": "AAOI", "object_type": "instrument"}, {"symbol": "NBIS", "object_type": "instrument"},
+    {"symbol": "BE", "object_type": "instrument"}
+  ]
+}

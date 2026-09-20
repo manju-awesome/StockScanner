@@ -20,7 +20,36 @@ data/cache/
 
 # User's real positions — personal financial data, never committed
 data/portfolio.csv
+data/options_positions.csv
+data/backups/
+
+# Day Trade live state (spydaytrader): open 0DTE positions, the closed-trade
+# journal and signal dedup state — same reasoning as portfolio.csv above
+data/spy/*.json
+!data/spy/.gitkeep
+
+# CSP scan output — half a megabyte, and every field in it is reproducible
+# by re-running the scan. data/csp/iv_history.json is deliberately NOT
+# ignored: it accumulates one ATM IV observation per ticker per run, yfinance
+# serves only the current surface, and so it cannot be backfilled. Losing it
+# resets IV Rank to "unavailable" for another thirty trading days.
+data/csp/csp_snapshot.json
+
+# Compounder scan output — ~4MB of scores and generated narrative across the
+# whole theme library, and unlike data/csp/iv_history.json every field in it
+# is reproducible: it is derived entirely from filings and prices that
+# yfinance will serve again. Re-create with
+#   python -m stockanalysis.core.compounder.scan
+# The curated TAM/theme library it scores against is CODE (core/compounder/
+# themes.py) and is versioned — that is the part that could not be rebuilt.
+data/compounder/compounder_snapshot.json
 
 # OS
 .DS_Store
 Thumbs.db
+data/regime_latest.json
+
+# Derived CUSIP name index (~5 MB, rebuilt from the cached 13F zip in
+# seconds). The hand-curated cusip_overrides.json beside it IS committed —
+# it is the only part nobody can regenerate.
+data/institutional/cusip_index.json

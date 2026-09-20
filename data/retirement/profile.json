@@ -1,0 +1,45 @@
+{
+  "people": [
+    {"name": "You",    "age": 39, "role": "self"},
+   
+    {"name": "Child",  "age": 5,  "role": "child"}
+  ],
+  "retirement_age": 45,
+  "current_country": "US",
+  "retirement_country": "India",
+
+  "income":   {"salary": 100000, "spouse_salary": 0, "rsu": 0, "rental": 0},
+  "savings":  {"401k": 83000, "roth": 0, "brokerage": 150000, "hsa": 0},
+
+  "spending": {
+    "essential": {"housing": 1200, "food": 1000, "utilities": 0,
+                  "transportation": 1000, "healthcare": 0, "insurance": 0,
+                  "education": 0, "family_support": 0, "taxes": 0},
+    "lifestyle": {"travel": 0, "entertainment": 0, "restaurants": 0,
+                  "hobbies": 0, "shopping": 0}
+  },
+  "retirement_spending": {"essential": 2000, "lifestyle": 1000},
+
+  "assets": [
+    {"kind": "401k",       "value": 83000},
+    {"kind": "roth_ira",   "value": 2000},
+    {"kind": "hsa",        "value": 0},
+    {"kind": "brokerage",  "value": null,
+     "note": "null pulls the value from portfolio.csv"},
+    {"kind": "cash",       "value": 0, "goal": "emergency"},
+    {"kind": "primary_residence", "value": 0}
+  ],
+
+  "liabilities": [
+    {"label": "Mortgage", "kind": "mortgage", "balance": 0,
+     "rate": 6.25, "monthly_payment": 0}
+  ],
+
+  "one_offs": [
+    {"label": "College", "amount": 0, "year": 2044,
+     "goal": "education", "funded_from": "portfolio"}
+  ],
+
+  "allocation": {"equity": 0.80, "bond": 0.15, "cash": 0.05},
+  "assumptions": {}
+}

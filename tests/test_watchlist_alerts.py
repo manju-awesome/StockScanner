@@ -175,19 +175,29 @@ class TestPutScoreAlerts(ScanRowsForAlertsTestCase):
         except OSError:
             return {}
 
-    def test_score_above_threshold_fires_high_and_mirrors_to_alert_tickers(self):
+    def test_score_at_or_above_threshold_fires_critical_and_mirrors(self):
         rows = [{"Ticker": "WOLF", "Put_Score": 9,
                  "Put_Reason": "below 200MA; RSI weak; heavy distribution"}]
         fired = wa.scan_rows_for_put_alerts(rows)
         self.assertEqual(len(fired), 1)
         self.assertEqual(fired[0]["dedup_key"], "WOLF:put_score_high")
-        self.assertEqual(fired[0]["priority"], "HIGH")   # email tier
+        self.assertEqual(fired[0]["priority"], "CRITICAL")  # top email tier
         self.assertIn("score 9", fired[0]["headline"])
         self.assertEqual(self._watchlist()[alerts.ALERT_WATCHLIST_KEY], ["WOLF"])
 
-    def test_score_at_threshold_does_not_fire(self):
+    def test_score_below_threshold_does_not_fire(self):
+        # threshold is inclusive at 9, so 8 is the highest non-alerting score
         self.assertEqual(wa.scan_rows_for_put_alerts(
             [{"Ticker": "WOLF", "Put_Score": 8}]), [])
+
+    def test_exactly_nine_fires(self):
+        fired = wa.scan_rows_for_put_alerts([{"Ticker": "WOLF", "Put_Score": 9}])
+        self.assertEqual(len(fired), 1)
+        self.assertEqual(fired[0]["priority"], "CRITICAL")
+
+    def test_call_score_below_threshold_does_not_fire(self):
+        self.assertEqual(wa.scan_rows_for_option_alerts(
+            [{"Ticker": "BE", "Call_Score": 8}]), [])
 
     def test_fires_once_then_resolves_when_score_drops(self):
         hot = [{"Ticker": "WOLF", "Put_Score": 9}]
@@ -206,14 +216,14 @@ class TestPutScoreAlerts(ScanRowsForAlertsTestCase):
         self.assertEqual(wa.scan_rows_for_option_alerts(
             [{"Ticker": "WOLF", "Put_Score": 9}]), [])
 
-    def test_call_score_fires_high_with_strike_hint_and_mirrors(self):
+    def test_call_score_fires_critical_with_strike_hint_and_mirrors(self):
         rows = [{"Ticker": "BE", "Call_Score": 9, "Call_Strength": "STRONG",
                  "Call_Reason": "IV compressing; earnings beat; base forming",
                  "Call_Strike_Hint": "ATM 60d"}]
         fired = wa.scan_rows_for_option_alerts(rows)
         self.assertEqual(len(fired), 1)
         self.assertEqual(fired[0]["dedup_key"], "BE:call_score_high")
-        self.assertEqual(fired[0]["priority"], "HIGH")
+        self.assertEqual(fired[0]["priority"], "CRITICAL")
         self.assertIn("turnaround", fired[0]["headline"])
         self.assertEqual(fired[0]["supporting_data"]["call_strike_hint"], "ATM 60d")
         self.assertEqual(self._watchlist()[alerts.ALERT_WATCHLIST_KEY], ["BE"])

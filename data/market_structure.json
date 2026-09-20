@@ -1,0 +1,22 @@
+{
+ "_readme": [
+  "Hand-maintained competitive-structure overrides for the Research Library's",
+  "'Position' column. Everything else in that column is COMPUTED: market-cap",
+  "rank and share of peer cap within the ticker's yfinance industry.",
+  "",
+  "Add an entry only when you know the real market structure, because market",
+  "cap is a proxy for size, not share — the two diverge exactly where it",
+  "matters (a sole-source supplier can rank #2 by cap in its industry).",
+  "An entry here overrides the computed label in the table.",
+  "",
+  "This file ships empty on purpose: an unverified market-share claim in a",
+  "trading tool is worse than no claim. Fill it in from your own research.",
+  "",
+  "Format — either shorthand or full:",
+  "  \"TICKER\": \"EUV monopoly\"",
+  "  \"TICKER\": {\"structure\": \"Duopoly\", \"note\": \"with <competitor>\"}",
+  "",
+  "'structure' is the short label shown in the cell; 'note' is the tooltip.",
+  "Keys beginning with _ are ignored."
+ ]
+}

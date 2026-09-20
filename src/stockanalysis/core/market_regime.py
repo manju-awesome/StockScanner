@@ -150,3 +150,95 @@ def compute_regime(pulse: dict | None = None,
         "guidance": REGIME_GUIDANCE[regime],
         "source": source,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BENCHMARK LEADERSHIP — who is leading, and does the rest of the market agree
+# ─────────────────────────────────────────────────────────────────────────────
+# compute_regime() above already scores VIX, SPY, QQQ and mega-cap breadth
+# into a single number. This answers a different question that the score
+# cannot: WHICH part of the market is carrying it. A +3 regime driven by QQQ
+# alone while the Dow lags is a narrow, tech-led tape; the same +3 with DIA
+# and IWM confirming is a broad one, and they warrant different position
+# sizing even though the number matches.
+#
+#   SPY   market direction
+#   QQQ   growth / momentum
+#   DIA   blue-chip confirmation (old economy)
+#   IWM   risk appetite (small caps)
+#
+# Trend is measured against the 200-day average, not today's move. A verdict
+# that flips because the Dow closed -0.2% would be noise dressed as a signal;
+# the 200MA relationship is what "leading" or "lagging" actually means over a
+# swing horizon. Today's change is reported alongside but never drives the
+# classification.
+LEADERSHIP_TICKERS = ("SPY", "QQQ", "DIA", "IWM")
+
+
+def benchmark_leadership(profiles: dict) -> dict:
+    """Read the tape from benchmark ETF profiles (core.etf_profile shape).
+
+    Returns {"ok", "verdict", "tone", "detail", "legs", "missing"}. Missing
+    benchmarks are named rather than silently treated as neutral — a verdict
+    built on two of four legs is not the same claim as one built on four.
+    """
+    legs, missing = {}, []
+    for ticker in LEADERSHIP_TICKERS:
+        p = profiles.get(ticker) or {}
+        dist = p.get("dist_ma200")
+        if dist is None:
+            missing.append(ticker)
+            continue
+        legs[ticker] = {
+            "ticker": ticker,
+            "above_200ma": dist > 0,
+            "dist_ma200": round(float(dist), 2),
+            "change_pct": p.get("change_pct"),
+            "ytd": p.get("ytd_return"),
+        }
+
+    if len(legs) < 2:
+        return {"ok": False, "verdict": "Not enough benchmark data",
+                "tone": "muted", "legs": list(legs.values()),
+                "missing": missing,
+                "detail": "Need at least SPY plus one other benchmark — "
+                          "run Refresh ETFs."}
+
+    up = {t for t, v in legs.items() if v["above_200ma"]}
+    spy, qqq, dia, iwm = (t in up for t in LEADERSHIP_TICKERS)
+    has = lambda t: t in legs                                    # noqa: E731
+
+    if has("SPY") and has("QQQ") and has("DIA") and spy and qqq and dia:
+        verdict, tone = "Broad risk-on", "good"
+        detail = ("SPY, QQQ and DIA all above their 200-day — the rally has "
+                  "old-economy confirmation, not just tech.")
+        if has("IWM"):
+            detail += (" Small caps confirm too." if iwm else
+                       " Small caps still lag, so risk appetite is not yet full.")
+    elif has("SPY") and has("DIA") and not spy and not dia:
+        verdict, tone = "Broad risk-off", "bad"
+        detail = ("Both SPY and DIA below their 200-day — this is the whole "
+                  "market, not a rotation. Size down or stand aside.")
+    elif has("QQQ") and has("DIA") and qqq and not dia:
+        verdict, tone = "Tech-led, narrow", "watch"
+        detail = ("QQQ leads while DIA lags its 200-day — breadth is thin and "
+                  "the tape is carried by growth. Thematic tech exposure is "
+                  "doing the work; a rotation would hit it hardest.")
+    elif has("DIA") and has("QQQ") and dia and not qqq:
+        verdict, tone = "Defensive rotation", "watch"
+        detail = ("DIA holds while QQQ is below its 200-day — money is in "
+                  "blue chips, not growth. Momentum and semis setups face a "
+                  "headwind here.")
+    elif spy:
+        verdict, tone = "Mixed, market up", "watch"
+        detail = "SPY is above its 200-day but the other legs disagree."
+    else:
+        verdict, tone = "Mixed, market down", "watch"
+        detail = "SPY is below its 200-day; leadership is unsettled."
+
+    if has("IWM") and not iwm and has("SPY") and spy:
+        detail += " IWM below its 200-day says risk appetite is selective."
+
+    return {"ok": True, "verdict": verdict, "tone": tone, "detail": detail,
+            "legs": [legs[t] for t in LEADERSHIP_TICKERS if t in legs],
+            "missing": missing}

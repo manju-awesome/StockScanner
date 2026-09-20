@@ -1,0 +1,2838 @@
+{
+  "generated_at": "2026-08-20T16:51:51",
+  "missing": [],
+  "completeness_pct": 100.0,
+  "assumptions": [
+    {
+      "key": "equity_real_return",
+      "value": 5.0,
+      "unit": "%/yr",
+      "label": "Equity real return",
+      "basis": "Long-run US equity real return has run ~6.5-7%; this trims it for today's starting valuations and for fees/slippage. Not a forecast \u2014 a planning number.",
+      "confidence": "MEDIUM"
+    },
+    {
+      "key": "equity_volatility",
+      "value": 17.0,
+      "unit": "%/yr",
+      "label": "Equity volatility",
+      "basis": "Annual standard deviation of a broad equity index, close to the long-run realised figure.",
+      "confidence": "MEDIUM"
+    },
+    {
+      "key": "bond_real_return",
+      "value": 1.5,
+      "unit": "%/yr",
+      "label": "Bond real return",
+      "basis": "Real yield available on intermediate high-grade bonds, held to maturity. Positive but thin.",
+      "confidence": "MEDIUM"
+    },
+    {
+      "key": "bond_volatility",
+      "value": 6.0,
+      "unit": "%/yr",
+      "label": "Bond volatility",
+      "basis": "Annual standard deviation of an intermediate bond index. Higher than the pre-2022 assumption for a reason.",
+      "confidence": "MEDIUM"
+    },
+    {
+      "key": "cash_real_return",
+      "value": 0.0,
+      "unit": "%/yr",
+      "label": "Cash real return",
+      "basis": "Cash is assumed to match inflation and no more. Over long windows it has often done slightly worse.",
+      "confidence": "MEDIUM"
+    },
+    {
+      "key": "equity_bond_correlation",
+      "value": 0.15,
+      "unit": "ratio",
+      "label": "Equity/bond correlation",
+      "basis": "Modestly positive. The negative correlation of 1990-2020 was a regime, not a law, and 2022 showed both sides falling together.",
+      "confidence": "LOW"
+    },
+    {
+      "key": "inflation",
+      "value": 3.0,
+      "unit": "%/yr",
+      "label": "General inflation",
+      "basis": "Slightly above the 2% target because the plan should survive the overshoot, not the target.",
+      "confidence": "MEDIUM"
+    },
+    {
+      "key": "healthcare_inflation",
+      "value": 5.5,
+      "unit": "%/yr",
+      "label": "Healthcare inflation",
+      "basis": "Medical costs have persistently outrun general inflation. Applied only to the healthcare line, never to total spending.",
+      "confidence": "MEDIUM"
+    },
+    {
+      "key": "education_inflation",
+      "value": 5.0,
+      "unit": "%/yr",
+      "label": "Education inflation",
+      "basis": "Tuition has outrun general inflation for decades in both the US and urban India.",
+      "confidence": "LOW"
+    },
+    {
+      "key": "life_expectancy",
+      "value": 92,
+      "unit": "age",
+      "label": "Planning horizon (self)",
+      "basis": "A planning age, not a life expectancy. Roughly the 85th percentile survival age for a healthy person now in their 40s \u2014 you plan for the tail, not the median, because the median outcome is the one you can afford to be wrong about.",
+      "confidence": "MEDIUM"
+    },
+    {
+      "key": "spouse_life_expectancy",
+      "value": 95,
+      "unit": "age",
+      "label": "Planning horizon (spouse)",
+      "basis": "Set higher than the primary horizon: for a couple, the money has to last until the SECOND death, and female life expectancy runs longer.",
+      "confidence": "MEDIUM"
+    },
+    {
+      "key": "safe_withdrawal_rate",
+      "value": 3.5,
+      "unit": "%",
+      "label": "Baseline withdrawal rate",
+      "basis": "Below the classic 4% because that study assumed a 30-year US retirement, a 50/50 portfolio and no fees. A retirement starting before 60 is longer than 30 years.",
+      "confidence": "MEDIUM"
+    },
+    {
+      "key": "usdinr_drift",
+      "value": 2.0,
+      "unit": "%/yr",
+      "label": "USD/INR drift",
+      "basis": "Long-run rupee depreciation against the dollar, roughly the inflation differential. Directionally reliable, annually useless.",
+      "confidence": "LOW"
+    },
+    {
+      "key": "salary_growth_real",
+      "value": 1.0,
+      "unit": "%/yr",
+      "label": "Real salary growth",
+      "basis": "Above-inflation raises, net of the fact that they stop or reverse late in a career.",
+      "confidence": "LOW"
+    },
+    {
+      "key": "monte_carlo_paths",
+      "value": 10000,
+      "unit": "paths",
+      "label": "Monte Carlo paths",
+      "basis": "Enough that the success probability is stable to well under a percentage point between runs.",
+      "confidence": "HIGH"
+    }
+  ],
+  "profile_updated_at": null,
+  "mix": {
+    "weights": {
+      "equity": 80.0,
+      "bond": 15.0,
+      "cash": 5.0
+    },
+    "expected_real_return": 4.225,
+    "volatility": 13.76379308185066,
+    "note": "Return and volatility are derived from the allocation, not chosen independently of it."
+  },
+  "balance": {
+    "assets": [
+      {
+        "label": "401K",
+        "kind": "401k",
+        "value": 0.0,
+        "currency": "USD",
+        "tax_status": "tax_deferred",
+        "liquidity": "semi_liquid",
+        "expected_return": null,
+        "risk": "",
+        "goal": "retirement",
+        "investable": true,
+        "allocation": {},
+        "note": ""
+      },
+      {
+        "label": "Roth Ira",
+        "kind": "roth_ira",
+        "value": 0.0,
+        "currency": "USD",
+        "tax_status": "tax_free",
+        "liquidity": "semi_liquid",
+        "expected_return": null,
+        "risk": "",
+        "goal": "retirement",
+        "investable": true,
+        "allocation": {},
+        "note": ""
+      },
+      {
+        "label": "Hsa",
+        "kind": "hsa",
+        "value": 0.0,
+        "currency": "USD",
+        "tax_status": "tax_free",
+        "liquidity": "semi_liquid",
+        "expected_return": null,
+        "risk": "",
+        "goal": "retirement",
+        "investable": true,
+        "allocation": {},
+        "note": ""
+      },
+      {
+        "label": "Brokerage",
+        "kind": "brokerage",
+        "value": 12143.26,
+        "currency": "USD",
+        "tax_status": "taxable",
+        "liquidity": "liquid",
+        "expected_return": null,
+        "risk": "",
+        "goal": "retirement",
+        "investable": true,
+        "allocation": {},
+        "note": "null pulls the value from portfolio.csv From portfolio.csv as of 2026-08-18T17:09:12."
+      },
+      {
+        "label": "Cash",
+        "kind": "cash",
+        "value": 0.0,
+        "currency": "USD",
+        "tax_status": "cash",
+        "liquidity": "liquid",
+        "expected_return": null,
+        "risk": "",
+        "goal": "emergency",
+        "investable": true,
+        "allocation": {},
+        "note": ""
+      },
+      {
+        "label": "Primary Residence",
+        "kind": "primary_residence",
+        "value": 0.0,
+        "currency": "USD",
+        "tax_status": "non_financial",
+        "liquidity": "illiquid",
+        "expected_return": null,
+        "risk": "",
+        "goal": "retirement",
+        "investable": false,
+        "allocation": {},
+        "note": ""
+      }
+    ],
+    "unknown_count": 0,
+    "liabilities": [
+      {
+        "label": "Mortgage",
+        "kind": "mortgage",
+        "balance": 0.0,
+        "rate": 6.25,
+        "monthly_payment": 0.0,
+        "years_remaining": null,
+        "currency": "USD",
+        "deductible": false,
+        "disposition": {
+          "action": "REFINANCE / MAINTAIN",
+          "reason": "Real rate 3.2% is close to the 4.2% expected return. Too thin a spread to be worth the risk \u2014 refinance if you can, otherwise it is a wash."
+        }
+      }
+    ],
+    "total_assets": 12143.26,
+    "total_debt": 0.0,
+    "net_worth": 12143.26,
+    "investable": 12143.26,
+    "earmarked": 0.0,
+    "retirement_assets": 12143.26,
+    "by_tax": {
+      "taxable": 12143.26,
+      "tax_deferred": 0.0,
+      "tax_free": 0.0,
+      "cash": 0.0,
+      "non_financial": 0.0
+    },
+    "by_liquidity": {
+      "liquid": 12143.26,
+      "semi_liquid": 0.0,
+      "illiquid": 0.0
+    },
+    "by_currency": {
+      "USD": 12143.26
+    },
+    "monthly_debt_payment": 0.0,
+    "debt_to_income_pct": 0.0,
+    "brokerage": {
+      "total": 12143.26,
+      "positions": [
+        {
+          "ticker": "OKLO",
+          "value": 4027.0,
+          "strategy": "longterm",
+          "account": "6125+5022",
+          "weight": 33.16242919940774
+        },
+        {
+          "ticker": "FLY",
+          "value": 2657.47,
+          "strategy": "longterm",
+          "account": "6125+5022",
+          "weight": 21.884321014291054
+        },
+        {
+          "ticker": "POET",
+          "value": 1378.0,
+          "strategy": "longterm",
+          "account": "6125+5022",
+          "weight": 11.347858812213524
+        },
+        {
+          "ticker": "SLV",
+          "value": 1104.81,
+          "strategy": "watch",
+          "account": "6125+5022",
+          "weight": 9.09813345016083
+        },
+        {
+          "ticker": "ORCL",
+          "value": 1035.09,
+          "strategy": "longterm",
+          "account": "6125+5022",
+          "weight": 8.523987792405004
+        },
+        {
+          "ticker": "NOK",
+          "value": 725.56,
+          "strategy": "longterm",
+          "account": "6125+5022",
+          "weight": 5.975001770529495
+        },
+        {
+          "ticker": "GOOGL",
+          "value": 322.97,
+          "strategy": "longterm",
+          "account": "6125+5022",
+          "weight": 2.659664702888681
+        },
+        {
+          "ticker": "GLD",
+          "value": 260.34,
+          "strategy": "watch",
+          "account": "6125+5022",
+          "weight": 2.1439053433756663
+        },
+        {
+          "ticker": "LITE",
+          "value": 228.97,
+          "strategy": "watch",
+          "account": "6125+5022",
+          "weight": 1.8855727374691804
+        },
+        {
+          "ticker": "AAOI",
+          "value": 200.38,
+          "strategy": "watch",
+          "account": "6125+5022",
+          "weight": 1.6501334896889304
+        },
+        {
+          "ticker": "GLW",
+          "value": 146.59,
+          "strategy": "longterm",
+          "account": "6125+5022",
+          "weight": 1.2071717150089845
+        },
+        {
+          "ticker": "NBIS",
+          "value": 37.55,
+          "strategy": "watch",
+          "account": "6125+5022",
+          "weight": 0.30922503512236416
+        },
+        {
+          "ticker": "IREN",
+          "value": 18.53,
+          "strategy": "longterm",
+          "account": "6125+5022",
+          "weight": 0.15259493743854616
+        }
+      ],
+      "as_of": "2026-08-18T17:09:12",
+      "source": "/Users/manju/Documents/Claude_projects/July01-2027/StockAnalysis_Version1/data/portfolio.csv",
+      "error": null
+    },
+    "concentration": [
+      {
+        "ticker": "OKLO",
+        "value": 4027.0,
+        "strategy": "longterm",
+        "account": "6125+5022",
+        "weight": 33.16242919940774,
+        "band": "HIGH",
+        "flag": "\ud83d\udd34"
+      },
+      {
+        "ticker": "FLY",
+        "value": 2657.47,
+        "strategy": "longterm",
+        "account": "6125+5022",
+        "weight": 21.884321014291054,
+        "band": "HIGH",
+        "flag": "\ud83d\udd34"
+      },
+      {
+        "ticker": "POET",
+        "value": 1378.0,
+        "strategy": "longterm",
+        "account": "6125+5022",
+        "weight": 11.347858812213524,
+        "band": "HIGH",
+        "flag": "\ud83d\udd34"
+      },
+      {
+        "ticker": "SLV",
+        "value": 1104.81,
+        "strategy": "watch",
+        "account": "6125+5022",
+        "weight": 9.09813345016083,
+        "band": "MODERATE",
+        "flag": "\ud83d\udfe0"
+      },
+      {
+        "ticker": "ORCL",
+        "value": 1035.09,
+        "strategy": "longterm",
+        "account": "6125+5022",
+        "weight": 8.523987792405004,
+        "band": "MODERATE",
+        "flag": "\ud83d\udfe0"
+      },
+      {
+        "ticker": "NOK",
+        "value": 725.56,
+        "strategy": "longterm",
+        "account": "6125+5022",
+        "weight": 5.975001770529495,
+        "band": "MODERATE",
+        "flag": "\ud83d\udfe0"
+      },
+      {
+        "ticker": "GOOGL",
+        "value": 322.97,
+        "strategy": "longterm",
+        "account": "6125+5022",
+        "weight": 2.659664702888681,
+        "band": "LOWER",
+        "flag": "\ud83d\udfe2"
+      },
+      {
+        "ticker": "GLD",
+        "value": 260.34,
+        "strategy": "watch",
+        "account": "6125+5022",
+        "weight": 2.1439053433756663,
+        "band": "LOWER",
+        "flag": "\ud83d\udfe2"
+      },
+      {
+        "ticker": "LITE",
+        "value": 228.97,
+        "strategy": "watch",
+        "account": "6125+5022",
+        "weight": 1.8855727374691804,
+        "band": "LOWER",
+        "flag": "\ud83d\udfe2"
+      },
+      {
+        "ticker": "AAOI",
+        "value": 200.38,
+        "strategy": "watch",
+        "account": "6125+5022",
+        "weight": 1.6501334896889304,
+        "band": "LOWER",
+        "flag": "\ud83d\udfe2"
+      },
+      {
+        "ticker": "GLW",
+        "value": 146.59,
+        "strategy": "longterm",
+        "account": "6125+5022",
+        "weight": 1.2071717150089845,
+        "band": "LOWER",
+        "flag": "\ud83d\udfe2"
+      },
+      {
+        "ticker": "NBIS",
+        "value": 37.55,
+        "strategy": "watch",
+        "account": "6125+5022",
+        "weight": 0.30922503512236416,
+        "band": "LOWER",
+        "flag": "\ud83d\udfe2"
+      },
+      {
+        "ticker": "IREN",
+        "value": 18.53,
+        "strategy": "longterm",
+        "account": "6125+5022",
+        "weight": 0.15259493743854616,
+        "band": "LOWER",
+        "flag": "\ud83d\udfe2"
+      }
+    ]
+  },
+  "emergency_fund": {
+    "monthly_essential": 266.6666666666667,
+    "months_recommended": 12.0,
+    "minimum": 800.0,
+    "recommended": 3200.0,
+    "maximum": 4800.0,
+    "held_cash": 0.0,
+    "held_liquid": 12143.26,
+    "status": "bad",
+    "verdict": "Below the three-month floor.",
+    "reasons": [
+      "6 months is the baseline.",
+      "single household income: +2 months",
+      "1 dependent(s): +1 month",
+      "a planned move to India adds relocation costs and a gap in coverage: +3 months"
+    ]
+  },
+  "goal_buckets": [
+    {
+      "goal": "College",
+      "target": 0.0,
+      "funded": 0.0,
+      "gap": 0.0,
+      "source": "portfolio",
+      "when": 2044,
+      "from_one_off": true,
+      "competes_with_retirement": true
+    }
+  ],
+  "annual_spend": 3000.0,
+  "spend_split": {
+    "essential": 2000.0,
+    "lifestyle": 1000.0,
+    "total": 3000.0,
+    "stated": true
+  },
+  "flexible_fraction_pct": 0.0,
+  "retirement_age": 45.0,
+  "horizon_age": 92,
+  "retirement_years": 47.0,
+  "withdrawal_models": {
+    "A": {
+      "model": "A \u2014 Traditional fixed withdrawal",
+      "spend": 3000.0,
+      "rows": [
+        {
+          "rate": 4.0,
+          "required": 75000.0,
+          "note": "The classic rule. Assumes a 30-year retirement; the study it comes from never claimed more. Your horizon is ~47 years, so this rate is being used outside the evidence it rests on."
+        },
+        {
+          "rate": 3.5,
+          "required": 85714.28571428571,
+          "note": "Reasonable for a 35-40 year horizon with a globally diversified portfolio and some spending flexibility."
+        },
+        {
+          "rate": 3.0,
+          "required": 100000.0,
+          "note": "Appropriate for a retirement of 40+ years, or for someone who cannot cut spending in a bad decade."
+        },
+        {
+          "rate": 2.5,
+          "required": 120000.0,
+          "note": "Close to a perpetual-endowment rate. Survives almost any history, and costs the most years of work to reach."
+        }
+      ],
+      "headline": 85714.28571428571
+    },
+    "B": {
+      "model": "B \u2014 Dynamic (floor + flexible)",
+      "essential": 2000.0,
+      "lifestyle": 1000.0,
+      "floor_rate": 3.0,
+      "flex_rate": 5.0,
+      "floor_capital": 66666.66666666667,
+      "flex_capital": 20000.0,
+      "required": 86666.66666666667,
+      "headline": 86666.66666666667,
+      "note": "Essentials funded at 3.00% so they survive a bad sequence; lifestyle at 5.0% because it can be cut. Requires you to actually cut it."
+    },
+    "C": {
+      "model": "C \u2014 Bucket strategy",
+      "buckets": [
+        {
+          "name": "Bucket 1 \u2014 years 0-3",
+          "amount": 9000.0,
+          "holds": "Cash, T-bills, short-term bonds",
+          "why": "Three years of spending that never has to be sold into a down market."
+        },
+        {
+          "name": "Bucket 2 \u2014 years 3-10",
+          "amount": 21000.0,
+          "holds": "Intermediate bonds, conservative income",
+          "why": "Refills Bucket 1. Long enough to ride out a typical recession without touching equities."
+        },
+        {
+          "name": "Bucket 3 \u2014 years 10+",
+          "amount": 45867.49122688202,
+          "holds": "Equities and growth assets",
+          "why": "Present value of years 10-47 of spending, discounted at 2.7% real."
+        }
+      ],
+      "required": 75867.49122688202,
+      "headline": 75867.49122688202,
+      "depletes": true,
+      "note": "Sized from spending, not from a target allocation \u2014 the equity share falls out of the arithmetic. Reads lower than Models A and B because it is allowed to hit zero at age 47 years from retirement; those two are sized to last indefinitely."
+    },
+    "D": {
+      "model": "D \u2014 Guardrails",
+      "initial_rate": 4.25,
+      "required": 70588.23529411765,
+      "headline": 70588.23529411765,
+      "upper_guardrail": 5.1,
+      "lower_guardrail": 3.4000000000000004,
+      "cut_pct": 10.0,
+      "spend_after_two_cuts": 2400.0,
+      "essential": 2000.0,
+      "viable": true,
+      "note": "Start at 4.25%. If the withdrawal rate rises past 5.10% (portfolio down), cut spending 10%; if it falls below 3.40%, a raise is affordable. After two consecutive cuts you would be living on $2,400."
+    },
+    "headlines": {
+      "A": 85714.28571428571,
+      "B": 86666.66666666667,
+      "C": 75867.49122688202,
+      "D": 70588.23529411765
+    },
+    "low": 70588.23529411765,
+    "high": 86666.66666666667,
+    "spread_pct": 22.77777777777778,
+    "planning_number": 86666.66666666667,
+    "guardrail_warning": null,
+    "interpretation": "A moderate spread. Which model you follow matters, but no choice among them is catastrophic."
+  },
+  "target_portfolio": 86666.66666666667,
+  "funding_pct": 14.011453846153845,
+  "fi_ladder": {
+    "rungs": [
+      {
+        "level": "Lean",
+        "annual_spending": 2000.0,
+        "required": 57142.857142857145,
+        "progress_pct": 21.250705,
+        "gap": 44999.59714285714,
+        "reached": false,
+        "note": "Essentials only \u2014 housing, food, healthcare, insurance, taxes. The line below which the plan is fragile.",
+        "years_away": 0.19595321247237657
+      },
+      {
+        "level": "Standard",
+        "annual_spending": 3000.0,
+        "required": 85714.28571428571,
+        "progress_pct": 14.167136666666668,
+        "gap": 73571.02571428572,
+        "reached": false,
+        "note": "Life continues exactly as it does today.",
+        "years_away": 0.31954937272611694
+      },
+      {
+        "level": "Comfortable",
+        "annual_spending": 3750.0,
+        "required": 107142.85714285714,
+        "progress_pct": 11.333709333333333,
+        "gap": 94999.59714285715,
+        "reached": false,
+        "note": "Today's spending +25%. A convention, not a finding.",
+        "years_away": 0.4118334050477974
+      },
+      {
+        "level": "Fat",
+        "annual_spending": 4800.0,
+        "required": 137142.85714285713,
+        "progress_pct": 8.854460416666667,
+        "gap": 124999.59714285714,
+        "reached": false,
+        "note": "Today's spending +60%. Flexibility for family support and bad years.",
+        "years_away": 0.5404418303371117
+      }
+    ],
+    "withdrawal_rate": 3.5,
+    "highest_reached": null,
+    "next_rung": {
+      "level": "Lean",
+      "annual_spending": 2000.0,
+      "required": 57142.857142857145,
+      "progress_pct": 21.250705,
+      "gap": 44999.59714285714,
+      "reached": false,
+      "note": "Essentials only \u2014 housing, food, healthcare, insurance, taxes. The line below which the plan is fragile.",
+      "years_away": 0.19595321247237657
+    },
+    "basis": "Required capital = annual spending \u00f7 3.50%. Real terms, before any tax on withdrawals."
+  },
+  "projection": {
+    "rows": [
+      {
+        "age": 39.0,
+        "year": 2026,
+        "working": true,
+        "opening": 12143.26,
+        "contribution": 233000.0,
+        "withdrawal": 0.0,
+        "one_off": 0.0,
+        "growth": 5435.177734999999,
+        "closing": 250578.437735
+      },
+      {
+        "age": 40.0,
+        "year": 2027,
+        "working": true,
+        "opening": 250578.437735,
+        "contribution": 235330.0,
+        "withdrawal": 0.0,
+        "one_off": 0.0,
+        "growth": 15558.28524430375,
+        "closing": 501466.7229793038
+      },
+      {
+        "age": 41.0,
+        "year": 2028,
+        "working": true,
+        "opening": 501466.7229793038,
+        "contribution": 237683.3,
+        "withdrawal": 0.0,
+        "one_off": 0.0,
+        "growth": 26208.028758375585,
+        "closing": 765358.0517376793
+      },
+      {
+        "age": 42.0,
+        "year": 2029,
+        "working": true,
+        "opening": 765358.0517376793,
+        "contribution": 240060.133,
+        "withdrawal": 0.0,
+        "one_off": 0.0,
+        "growth": 37407.64799554194,
+        "closing": 1042825.8327332212
+      },
+      {
+        "age": 43.0,
+        "year": 2030,
+        "working": true,
+        "opening": 1042825.8327332212,
+        "contribution": 242460.73433,
+        "withdrawal": 0.0,
+        "one_off": 0.0,
+        "growth": 49181.37444569985,
+        "closing": 1334467.941508921
+      },
+      {
+        "age": 44.0,
+        "year": 2031,
+        "working": true,
+        "opening": 1334467.941508921,
+        "contribution": 244885.34167330002,
+        "withdrawal": 0.0,
+        "one_off": 0.0,
+        "growth": 61554.473371600376,
+        "closing": 1640907.7565538213
+      },
+      {
+        "age": 45.0,
+        "year": 2032,
+        "working": false,
+        "opening": 1640907.7565538213,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 69264.97771439895,
+        "closing": 1707172.7342682201
+      },
+      {
+        "age": 46.0,
+        "year": 2033,
+        "working": false,
+        "opening": 1707172.7342682201,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 72064.6730228323,
+        "closing": 1776237.4072910524
+      },
+      {
+        "age": 47.0,
+        "year": 2034,
+        "working": false,
+        "opening": 1776237.4072910524,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 74982.65545804695,
+        "closing": 1848220.0627490995
+      },
+      {
+        "age": 48.0,
+        "year": 2035,
+        "working": false,
+        "opening": 1848220.0627490995,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 78023.92265114945,
+        "closing": 1923243.9854002488
+      },
+      {
+        "age": 49.0,
+        "year": 2036,
+        "working": false,
+        "opening": 1923243.9854002488,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 81193.6833831605,
+        "closing": 2001437.6687834093
+      },
+      {
+        "age": 50.0,
+        "year": 2037,
+        "working": false,
+        "opening": 2001437.6687834093,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 84497.36650609903,
+        "closing": 2082935.0352895083
+      },
+      {
+        "age": 51.0,
+        "year": 2038,
+        "working": false,
+        "opening": 2082935.0352895083,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 87940.63024098171,
+        "closing": 2167875.66553049
+      },
+      {
+        "age": 52.0,
+        "year": 2039,
+        "working": false,
+        "opening": 2167875.66553049,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 91529.3718686632,
+        "closing": 2256405.037399153
+      },
+      {
+        "age": 53.0,
+        "year": 2040,
+        "working": false,
+        "opening": 2256405.037399153,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 95269.73783011422,
+        "closing": 2348674.7752292673
+      },
+      {
+        "age": 54.0,
+        "year": 2041,
+        "working": false,
+        "opening": 2348674.7752292673,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 99168.13425343654,
+        "closing": 2444842.909482704
+      },
+      {
+        "age": 55.0,
+        "year": 2042,
+        "working": false,
+        "opening": 2444842.909482704,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 103231.23792564424,
+        "closing": 2545074.147408348
+      },
+      {
+        "age": 56.0,
+        "year": 2043,
+        "working": false,
+        "opening": 2545074.147408348,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 107466.00772800269,
+        "closing": 2649540.1551363505
+      },
+      {
+        "age": 57.0,
+        "year": 2044,
+        "working": false,
+        "opening": 2649540.1551363505,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 111879.6965545108,
+        "closing": 2758419.8516908614
+      },
+      {
+        "age": 58.0,
+        "year": 2045,
+        "working": false,
+        "opening": 2758419.8516908614,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 116479.86373393888,
+        "closing": 2871899.7154248003
+      },
+      {
+        "age": 59.0,
+        "year": 2046,
+        "working": false,
+        "opening": 2871899.7154248003,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 121274.3879766978,
+        "closing": 2990174.103401498
+      },
+      {
+        "age": 60.0,
+        "year": 2047,
+        "working": false,
+        "opening": 2990174.103401498,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 126271.48086871328,
+        "closing": 3113445.5842702114
+      },
+      {
+        "age": 61.0,
+        "year": 2048,
+        "working": false,
+        "opening": 3113445.5842702114,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 131479.70093541642,
+        "closing": 3241925.285205628
+      },
+      {
+        "age": 62.0,
+        "year": 2049,
+        "working": false,
+        "opening": 3241925.285205628,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 136907.96829993775,
+        "closing": 3375833.2535055657
+      },
+      {
+        "age": 63.0,
+        "year": 2050,
+        "working": false,
+        "opening": 3375833.2535055657,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 142565.57996061014,
+        "closing": 3515398.833466176
+      },
+      {
+        "age": 64.0,
+        "year": 2051,
+        "working": false,
+        "opening": 3515398.833466176,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 148462.22571394593,
+        "closing": 3660861.059180122
+      },
+      {
+        "age": 65.0,
+        "year": 2052,
+        "working": false,
+        "opening": 3660861.059180122,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 154608.00475036012,
+        "closing": 3812469.063930482
+      },
+      {
+        "age": 66.0,
+        "year": 2053,
+        "working": false,
+        "opening": 3812469.063930482,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 161013.44295106287,
+        "closing": 3970482.506881545
+      },
+      {
+        "age": 67.0,
+        "year": 2054,
+        "working": false,
+        "opening": 3970482.506881545,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 167689.51091574525,
+        "closing": 4135172.01779729
+      },
+      {
+        "age": 68.0,
+        "year": 2055,
+        "working": false,
+        "opening": 4135172.01779729,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 174647.6427519355,
+        "closing": 4306819.660549225
+      },
+      {
+        "age": 69.0,
+        "year": 2056,
+        "working": false,
+        "opening": 4306819.660549225,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 181899.75565820475,
+        "closing": 4485719.41620743
+      },
+      {
+        "age": 70.0,
+        "year": 2057,
+        "working": false,
+        "opening": 4485719.41620743,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 189458.2703347639,
+        "closing": 4672177.686542193
+      },
+      {
+        "age": 71.0,
+        "year": 2058,
+        "working": false,
+        "opening": 4672177.686542193,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 197336.13225640764,
+        "closing": 4866513.818798601
+      },
+      {
+        "age": 72.0,
+        "year": 2059,
+        "working": false,
+        "opening": 4866513.818798601,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 205546.83384424087,
+        "closing": 5069060.652642841
+      },
+      {
+        "age": 73.0,
+        "year": 2060,
+        "working": false,
+        "opening": 5069060.652642841,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 214104.43757416002,
+        "closing": 5280165.090217002
+      },
+      {
+        "age": 74.0,
+        "year": 2061,
+        "working": false,
+        "opening": 5280165.090217002,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 223023.60006166832,
+        "closing": 5500188.69027867
+      },
+      {
+        "age": 75.0,
+        "year": 2062,
+        "working": false,
+        "opening": 5500188.69027867,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 232319.5971642738,
+        "closing": 5729508.287442944
+      },
+      {
+        "age": 76.0,
+        "year": 2063,
+        "working": false,
+        "opening": 5729508.287442944,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 242008.35014446435,
+        "closing": 5968516.637587409
+      },
+      {
+        "age": 77.0,
+        "year": 2064,
+        "working": false,
+        "opening": 5968516.637587409,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 252106.452938068,
+        "closing": 6217623.090525476
+      },
+      {
+        "age": 78.0,
+        "year": 2065,
+        "working": false,
+        "opening": 6217623.090525476,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 262631.20057470136,
+        "closing": 6477254.291100178
+      },
+      {
+        "age": 79.0,
+        "year": 2066,
+        "working": false,
+        "opening": 6477254.291100178,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 273600.61879898247,
+        "closing": 6747854.90989916
+      },
+      {
+        "age": 80.0,
+        "year": 2067,
+        "working": false,
+        "opening": 6747854.90989916,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 285033.4949432395,
+        "closing": 7029888.4048424
+      },
+      {
+        "age": 81.0,
+        "year": 2068,
+        "working": false,
+        "opening": 7029888.4048424,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 296949.4101045914,
+        "closing": 7323837.814946991
+      },
+      {
+        "age": 82.0,
+        "year": 2069,
+        "working": false,
+        "opening": 7323837.814946991,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 309368.77268151037,
+        "closing": 7630206.5876285015
+      },
+      {
+        "age": 83.0,
+        "year": 2070,
+        "working": false,
+        "opening": 7630206.5876285015,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 322312.8533273042,
+        "closing": 7949519.440955806
+      },
+      {
+        "age": 84.0,
+        "year": 2071,
+        "working": false,
+        "opening": 7949519.440955806,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 335803.82138038275,
+        "closing": 8282323.262336188
+      },
+      {
+        "age": 85.0,
+        "year": 2072,
+        "working": false,
+        "opening": 8282323.262336188,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 349864.7828337039,
+        "closing": 8629188.045169892
+      },
+      {
+        "age": 86.0,
+        "year": 2073,
+        "working": false,
+        "opening": 8629188.045169892,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 364519.8199084279,
+        "closing": 8990707.865078319
+      },
+      {
+        "age": 87.0,
+        "year": 2074,
+        "working": false,
+        "opening": 8990707.865078319,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 379794.0322995589,
+        "closing": 9367501.897377878
+      },
+      {
+        "age": 88.0,
+        "year": 2075,
+        "working": false,
+        "opening": 9367501.897377878,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 395713.58016421535,
+        "closing": 9760215.477542093
+      },
+      {
+        "age": 89.0,
+        "year": 2076,
+        "working": false,
+        "opening": 9760215.477542093,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 412305.7289261534,
+        "closing": 10169521.206468247
+      },
+      {
+        "age": 90.0,
+        "year": 2077,
+        "working": false,
+        "opening": 10169521.206468247,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 429598.8959732834,
+        "closing": 10596120.10244153
+      },
+      {
+        "age": 91.0,
+        "year": 2078,
+        "working": false,
+        "opening": 10596120.10244153,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 447622.6993281546,
+        "closing": 11040742.801769685
+      },
+      {
+        "age": 92.0,
+        "year": 2079,
+        "working": false,
+        "opening": 11040742.801769685,
+        "contribution": 0.0,
+        "withdrawal": 3000.0,
+        "one_off": 0.0,
+        "growth": 466408.0083747691,
+        "closing": 11504150.810144454
+      }
+    ],
+    "age_now": 39.0,
+    "retirement_age": 45.0,
+    "horizon_age": 92,
+    "years_to_retirement": 6.0,
+    "retirement_years": 47.0,
+    "portfolio_at_retirement": 1640907.7565538213,
+    "final_value": 11504150.810144454,
+    "depleted_age": null,
+    "survives": true,
+    "annual_spend": 3000.0,
+    "real_return_pct": 4.225,
+    "one_off_total": 0.0
+  },
+  "projected_at_retirement": 1640907.7565538213,
+  "gap": 1554241.0898871545,
+  "earliest_safe_age": 40,
+  "earliest_caveat": "Deterministic: assumes the expected return every year, with no bad sequence. Treat it as the optimistic edge of the range, not as a date.",
+  "timeline": {
+    "rows": [
+      {
+        "label": "Aggressive (deterministic)",
+        "age": 40,
+        "basis": "Expected return every year, no bad sequence.",
+        "confidence": "LOW"
+      },
+      {
+        "label": "Target (yours)",
+        "age": 45.0,
+        "basis": "The age you entered.",
+        "confidence": "HIGH"
+      },
+      {
+        "label": "Financially safe (80% survival)",
+        "age": 40,
+        "basis": "98% of simulated sequences last the full horizon.",
+        "confidence": "MEDIUM"
+      },
+      {
+        "label": "Conservative (90% survival)",
+        "age": 40,
+        "basis": "98% of simulated sequences survive.",
+        "confidence": "MEDIUM"
+      },
+      {
+        "label": "Safe with spending flexibility",
+        "age": 40,
+        "basis": "80% survival, given a willingness to cut discretionary spending when a guardrail is breached.",
+        "confidence": "MEDIUM"
+      }
+    ],
+    "cost_of_certainty_years": 0,
+    "flexibility_saves_years": 0,
+    "note": "The spread between these ages is not error \u2014 it is the plan's sensitivity to luck. A narrow spread means the date is robust; a wide one means it depends on the sequence you happen to get."
+  },
+  "required_savings": 10658.863840132117,
+  "savings_shortfall": -222341.1361598679,
+  "monte_carlo": {
+    "success_pct": 100.0,
+    "band": "STRONG",
+    "status": "good",
+    "paths": 10000,
+    "horizon_age": 92,
+    "years_modelled": 53,
+    "mu_pct": 4.22,
+    "sigma_pct": 13.76,
+    "flexible": false,
+    "terminal": {
+      "p10": 2015063.1466272876,
+      "p50": 7133331.303299658,
+      "p90": 24222063.643387374,
+      "worst": 54450.325529076785
+    },
+    "median_years_lasted": 53.0,
+    "failure_age_p10": null,
+    "corridor": [
+      {
+        "age": 46.0,
+        "p10": 1228465.6475337031,
+        "p50": 1665049.804960425,
+        "p90": 2243320.9384831707
+      },
+      {
+        "age": 47.0,
+        "p10": 1198326.3213532462,
+        "p50": 1721914.7689130532,
+        "p90": 2414568.5054222834
+      },
+      {
+        "age": 48.0,
+        "p10": 1191312.7218260246,
+        "p50": 1778545.0196010126,
+        "p90": 2589009.7097847816
+      },
+      {
+        "age": 49.0,
+        "p10": 1182385.39564811,
+        "p50": 1829361.5103166196,
+        "p90": 2779996.0089124013
+      },
+      {
+        "age": 50.0,
+        "p10": 1185693.6383069889,
+        "p50": 1873412.582907084,
+        "p90": 2977169.419482304
+      },
+      {
+        "age": 51.0,
+        "p10": 1172283.9216519275,
+        "p50": 1935656.7911086103,
+        "p90": 3177715.1797040515
+      },
+      {
+        "age": 52.0,
+        "p10": 1179051.8184564032,
+        "p50": 2011295.6072908037,
+        "p90": 3359782.836732067
+      },
+      {
+        "age": 53.0,
+        "p10": 1185521.2855079768,
+        "p50": 2074271.9515753286,
+        "p90": 3583561.394745874
+      },
+      {
+        "age": 54.0,
+        "p10": 1190530.1855087145,
+        "p50": 2133358.9474288803,
+        "p90": 3769509.52067877
+      },
+      {
+        "age": 55.0,
+        "p10": 1200809.0133626047,
+        "p50": 2200350.742354417,
+        "p90": 3994692.239107006
+      },
+      {
+        "age": 56.0,
+        "p10": 1209488.3291766767,
+        "p50": 2273057.6260893047,
+        "p90": 4185674.4412338645
+      },
+      {
+        "age": 57.0,
+        "p10": 1213271.6562675275,
+        "p50": 2352658.974993622,
+        "p90": 4491049.3184337355
+      },
+      {
+        "age": 58.0,
+        "p10": 1228064.940182215,
+        "p50": 2427636.5467402404,
+        "p90": 4715788.31520598
+      },
+      {
+        "age": 59.0,
+        "p10": 1237106.3045696542,
+        "p50": 2517990.8435076876,
+        "p90": 4970232.572479278
+      },
+      {
+        "age": 60.0,
+        "p10": 1254042.3767578604,
+        "p50": 2583791.425927788,
+        "p90": 5215850.219768132
+      },
+      {
+        "age": 61.0,
+        "p10": 1265411.9951053446,
+        "p50": 2659168.6161386096,
+        "p90": 5513337.9856257895
+      },
+      {
+        "age": 62.0,
+        "p10": 1286075.0018832746,
+        "p50": 2740920.0637874883,
+        "p90": 5790420.594747433
+      },
+      {
+        "age": 63.0,
+        "p10": 1298151.4416164383,
+        "p50": 2813757.366400521,
+        "p90": 6189425.445471229
+      },
+      {
+        "age": 64.0,
+        "p10": 1311588.1508474587,
+        "p50": 2911570.4895071196,
+        "p90": 6444592.016044758
+      },
+      {
+        "age": 65.0,
+        "p10": 1323630.2359932056,
+        "p50": 2997385.1959904097,
+        "p90": 6779828.32380385
+      },
+      {
+        "age": 66.0,
+        "p10": 1333399.660428948,
+        "p50": 3085214.0947486274,
+        "p90": 7112180.57505562
+      },
+      {
+        "age": 67.0,
+        "p10": 1341041.6621321994,
+        "p50": 3214956.3844917323,
+        "p90": 7544370.315684691
+      },
+      {
+        "age": 68.0,
+        "p10": 1362775.924101591,
+        "p50": 3297511.6983078066,
+        "p90": 7855483.636031147
+      },
+      {
+        "age": 69.0,
+        "p10": 1373173.7262523498,
+        "p50": 3413873.9012732753,
+        "p90": 8325288.78663186
+      },
+      {
+        "age": 70.0,
+        "p10": 1393983.418378859,
+        "p50": 3518578.94773885,
+        "p90": 8921438.276265526
+      },
+      {
+        "age": 71.0,
+        "p10": 1414240.6519861878,
+        "p50": 3650561.3119566487,
+        "p90": 9207538.07003458
+      },
+      {
+        "age": 72.0,
+        "p10": 1431561.4566953399,
+        "p50": 3730916.9888233086,
+        "p90": 9560823.221916672
+      },
+      {
+        "age": 73.0,
+        "p10": 1434503.9529925864,
+        "p50": 3839994.9479850265,
+        "p90": 10108490.378617031
+      },
+      {
+        "age": 74.0,
+        "p10": 1459388.8757663216,
+        "p50": 3958026.6015156126,
+        "p90": 10628165.326337442
+      },
+      {
+        "age": 75.0,
+        "p10": 1468735.5586441567,
+        "p50": 4113010.426526253,
+        "p90": 11103002.73668956
+      },
+      {
+        "age": 76.0,
+        "p10": 1493213.903473693,
+        "p50": 4264230.837618932,
+        "p90": 11673722.035976203
+      },
+      {
+        "age": 77.0,
+        "p10": 1539344.1741397611,
+        "p50": 4407619.836569529,
+        "p90": 12241294.957821807
+      },
+      {
+        "age": 78.0,
+        "p10": 1573795.9120280843,
+        "p50": 4547429.901112489,
+        "p90": 12852459.155468725
+      },
+      {
+        "age": 79.0,
+        "p10": 1599963.3160327966,
+        "p50": 4661204.394353364,
+        "p90": 13480846.544213168
+      },
+      {
+        "age": 80.0,
+        "p10": 1623133.8559914576,
+        "p50": 4854518.361191563,
+        "p90": 14114260.147645047
+      },
+      {
+        "age": 81.0,
+        "p10": 1649971.602630923,
+        "p50": 5030503.03480936,
+        "p90": 14809483.132630521
+      },
+      {
+        "age": 82.0,
+        "p10": 1671322.5876778816,
+        "p50": 5162266.453893783,
+        "p90": 15364815.494159065
+      },
+      {
+        "age": 83.0,
+        "p10": 1701002.9999129449,
+        "p50": 5359298.143950431,
+        "p90": 15968047.882011455
+      },
+      {
+        "age": 84.0,
+        "p10": 1718420.9632064963,
+        "p50": 5518413.257386129,
+        "p90": 16883225.64977174
+      },
+      {
+        "age": 85.0,
+        "p10": 1754657.4782645984,
+        "p50": 5705136.000015824,
+        "p90": 17787984.08667557
+      },
+      {
+        "age": 86.0,
+        "p10": 1778173.9745261676,
+        "p50": 5878516.395461772,
+        "p90": 18658000.99001521
+      },
+      {
+        "age": 87.0,
+        "p10": 1819795.148760424,
+        "p50": 6051092.326704925,
+        "p90": 19587030.36721047
+      },
+      {
+        "age": 88.0,
+        "p10": 1838997.3174211178,
+        "p50": 6232453.957309651,
+        "p90": 20460224.916318
+      },
+      {
+        "age": 89.0,
+        "p10": 1877220.7845951647,
+        "p50": 6441979.1417221315,
+        "p90": 21551857.980907694
+      },
+      {
+        "age": 90.0,
+        "p10": 1930850.7963059768,
+        "p50": 6677260.931626962,
+        "p90": 22165619.90180052
+      },
+      {
+        "age": 91.0,
+        "p10": 1976840.0756375839,
+        "p50": 6875329.4719943,
+        "p90": 23135705.08826204
+      },
+      {
+        "age": 92.0,
+        "p10": 2015063.1466272876,
+        "p50": 7133331.303299658,
+        "p90": 24222063.643387374
+      }
+    ],
+    "caveat": "Independent normal real returns, no taxes, no inflation shock. A model result, not a forecast."
+  },
+  "monte_carlo_flexible": {
+    "success_pct": 100.0,
+    "band": "STRONG",
+    "status": "good",
+    "paths": 10000,
+    "horizon_age": 92,
+    "years_modelled": 53,
+    "mu_pct": 4.22,
+    "sigma_pct": 13.76,
+    "flexible": true,
+    "terminal": {
+      "p10": 2015063.1466272876,
+      "p50": 7133331.303299658,
+      "p90": 24222063.643387374,
+      "worst": 54450.325529076785
+    },
+    "median_years_lasted": 53.0,
+    "failure_age_p10": null,
+    "corridor": [
+      {
+        "age": 46.0,
+        "p10": 1228465.6475337031,
+        "p50": 1665049.804960425,
+        "p90": 2243320.9384831707
+      },
+      {
+        "age": 47.0,
+        "p10": 1198326.3213532462,
+        "p50": 1721914.7689130532,
+        "p90": 2414568.5054222834
+      },
+      {
+        "age": 48.0,
+        "p10": 1191312.7218260246,
+        "p50": 1778545.0196010126,
+        "p90": 2589009.7097847816
+      },
+      {
+        "age": 49.0,
+        "p10": 1182385.39564811,
+        "p50": 1829361.5103166196,
+        "p90": 2779996.0089124013
+      },
+      {
+        "age": 50.0,
+        "p10": 1185693.6383069889,
+        "p50": 1873412.582907084,
+        "p90": 2977169.419482304
+      },
+      {
+        "age": 51.0,
+        "p10": 1172283.9216519275,
+        "p50": 1935656.7911086103,
+        "p90": 3177715.1797040515
+      },
+      {
+        "age": 52.0,
+        "p10": 1179051.8184564032,
+        "p50": 2011295.6072908037,
+        "p90": 3359782.836732067
+      },
+      {
+        "age": 53.0,
+        "p10": 1185521.2855079768,
+        "p50": 2074271.9515753286,
+        "p90": 3583561.394745874
+      },
+      {
+        "age": 54.0,
+        "p10": 1190530.1855087145,
+        "p50": 2133358.9474288803,
+        "p90": 3769509.52067877
+      },
+      {
+        "age": 55.0,
+        "p10": 1200809.0133626047,
+        "p50": 2200350.742354417,
+        "p90": 3994692.239107006
+      },
+      {
+        "age": 56.0,
+        "p10": 1209488.3291766767,
+        "p50": 2273057.6260893047,
+        "p90": 4185674.4412338645
+      },
+      {
+        "age": 57.0,
+        "p10": 1213271.6562675275,
+        "p50": 2352658.974993622,
+        "p90": 4491049.3184337355
+      },
+      {
+        "age": 58.0,
+        "p10": 1228064.940182215,
+        "p50": 2427636.5467402404,
+        "p90": 4715788.31520598
+      },
+      {
+        "age": 59.0,
+        "p10": 1237106.3045696542,
+        "p50": 2517990.8435076876,
+        "p90": 4970232.572479278
+      },
+      {
+        "age": 60.0,
+        "p10": 1254042.3767578604,
+        "p50": 2583791.425927788,
+        "p90": 5215850.219768132
+      },
+      {
+        "age": 61.0,
+        "p10": 1265411.9951053446,
+        "p50": 2659168.6161386096,
+        "p90": 5513337.9856257895
+      },
+      {
+        "age": 62.0,
+        "p10": 1286075.0018832746,
+        "p50": 2740920.0637874883,
+        "p90": 5790420.594747433
+      },
+      {
+        "age": 63.0,
+        "p10": 1298151.4416164383,
+        "p50": 2813757.366400521,
+        "p90": 6189425.445471229
+      },
+      {
+        "age": 64.0,
+        "p10": 1311588.1508474587,
+        "p50": 2911570.4895071196,
+        "p90": 6444592.016044758
+      },
+      {
+        "age": 65.0,
+        "p10": 1323630.2359932056,
+        "p50": 2997385.1959904097,
+        "p90": 6779828.32380385
+      },
+      {
+        "age": 66.0,
+        "p10": 1333399.660428948,
+        "p50": 3085214.0947486274,
+        "p90": 7112180.57505562
+      },
+      {
+        "age": 67.0,
+        "p10": 1341041.6621321994,
+        "p50": 3214956.3844917323,
+        "p90": 7544370.315684691
+      },
+      {
+        "age": 68.0,
+        "p10": 1362775.924101591,
+        "p50": 3297511.6983078066,
+        "p90": 7855483.636031147
+      },
+      {
+        "age": 69.0,
+        "p10": 1373173.7262523498,
+        "p50": 3413873.9012732753,
+        "p90": 8325288.78663186
+      },
+      {
+        "age": 70.0,
+        "p10": 1393983.418378859,
+        "p50": 3518578.94773885,
+        "p90": 8921438.276265526
+      },
+      {
+        "age": 71.0,
+        "p10": 1414240.6519861878,
+        "p50": 3650561.3119566487,
+        "p90": 9207538.07003458
+      },
+      {
+        "age": 72.0,
+        "p10": 1431561.4566953399,
+        "p50": 3730916.9888233086,
+        "p90": 9560823.221916672
+      },
+      {
+        "age": 73.0,
+        "p10": 1434503.9529925864,
+        "p50": 3839994.9479850265,
+        "p90": 10108490.378617031
+      },
+      {
+        "age": 74.0,
+        "p10": 1459388.8757663216,
+        "p50": 3958026.6015156126,
+        "p90": 10628165.326337442
+      },
+      {
+        "age": 75.0,
+        "p10": 1468735.5586441567,
+        "p50": 4113010.426526253,
+        "p90": 11103002.73668956
+      },
+      {
+        "age": 76.0,
+        "p10": 1493213.903473693,
+        "p50": 4264230.837618932,
+        "p90": 11673722.035976203
+      },
+      {
+        "age": 77.0,
+        "p10": 1539344.1741397611,
+        "p50": 4407619.836569529,
+        "p90": 12241294.957821807
+      },
+      {
+        "age": 78.0,
+        "p10": 1573795.9120280843,
+        "p50": 4547429.901112489,
+        "p90": 12852459.155468725
+      },
+      {
+        "age": 79.0,
+        "p10": 1599963.3160327966,
+        "p50": 4661204.394353364,
+        "p90": 13480846.544213168
+      },
+      {
+        "age": 80.0,
+        "p10": 1623133.8559914576,
+        "p50": 4854518.361191563,
+        "p90": 14114260.147645047
+      },
+      {
+        "age": 81.0,
+        "p10": 1649971.602630923,
+        "p50": 5030503.03480936,
+        "p90": 14809483.132630521
+      },
+      {
+        "age": 82.0,
+        "p10": 1671322.5876778816,
+        "p50": 5162266.453893783,
+        "p90": 15364815.494159065
+      },
+      {
+        "age": 83.0,
+        "p10": 1701002.9999129449,
+        "p50": 5359298.143950431,
+        "p90": 15968047.882011455
+      },
+      {
+        "age": 84.0,
+        "p10": 1718420.9632064963,
+        "p50": 5518413.257386129,
+        "p90": 16883225.64977174
+      },
+      {
+        "age": 85.0,
+        "p10": 1754657.4782645984,
+        "p50": 5705136.000015824,
+        "p90": 17787984.08667557
+      },
+      {
+        "age": 86.0,
+        "p10": 1778173.9745261676,
+        "p50": 5878516.395461772,
+        "p90": 18658000.99001521
+      },
+      {
+        "age": 87.0,
+        "p10": 1819795.148760424,
+        "p50": 6051092.326704925,
+        "p90": 19587030.36721047
+      },
+      {
+        "age": 88.0,
+        "p10": 1838997.3174211178,
+        "p50": 6232453.957309651,
+        "p90": 20460224.916318
+      },
+      {
+        "age": 89.0,
+        "p10": 1877220.7845951647,
+        "p50": 6441979.1417221315,
+        "p90": 21551857.980907694
+      },
+      {
+        "age": 90.0,
+        "p10": 1930850.7963059768,
+        "p50": 6677260.931626962,
+        "p90": 22165619.90180052
+      },
+      {
+        "age": 91.0,
+        "p10": 1976840.0756375839,
+        "p50": 6875329.4719943,
+        "p90": 23135705.08826204
+      },
+      {
+        "age": 92.0,
+        "p10": 2015063.1466272876,
+        "p50": 7133331.303299658,
+        "p90": 24222063.643387374
+      }
+    ],
+    "caveat": "Independent normal real returns, no taxes, no inflation shock. A model result, not a forecast."
+  },
+  "flexibility_gain_pts": 0.0,
+  "scenarios": {
+    "scenarios": [
+      {
+        "key": "bull",
+        "title": "Bull market",
+        "blurb": "Strong equity returns throughout.",
+        "portfolio_at_retirement": 1795612.5184332663,
+        "withdrawal_rate": 0.16707390760550073,
+        "final_value": 49918948.477764234,
+        "survives": true,
+        "depleted_age": null,
+        "years_lasted": 47.0,
+        "spend_multiplier": 1.0
+      },
+      {
+        "key": "normal",
+        "title": "Normal market",
+        "blurb": "The plan's own expected returns.",
+        "portfolio_at_retirement": 1640907.7565538213,
+        "withdrawal_rate": 0.18282563343478234,
+        "final_value": 11504150.810144454,
+        "survives": true,
+        "depleted_age": null,
+        "years_lasted": 47.0,
+        "spend_multiplier": 1.0
+      },
+      {
+        "key": "lost_decade",
+        "title": "Lost decade",
+        "blurb": "Ten years of roughly zero real return, starting at retirement.",
+        "portfolio_at_retirement": 1640907.7565538213,
+        "withdrawal_rate": 0.18282563343478234,
+        "final_value": 7485644.770357455,
+        "survives": true,
+        "depleted_age": null,
+        "years_lasted": 47.0,
+        "spend_multiplier": 1.0
+      },
+      {
+        "key": "crash_2008",
+        "title": "2008-style crash",
+        "blurb": "A 45% drawdown five years before retirement, then recovery.",
+        "portfolio_at_retirement": 1748945.622110959,
+        "withdrawal_rate": 0.1715319196933654,
+        "final_value": 12291608.770868588,
+        "survives": true,
+        "depleted_age": null,
+        "years_lasted": 47.0,
+        "spend_multiplier": 1.0
+      },
+      {
+        "key": "crash_2020",
+        "title": "2020-style crash",
+        "blurb": "A 34% drawdown and a fast, complete recovery.",
+        "portfolio_at_retirement": 1084003.6749847268,
+        "withdrawal_rate": 0.27675182928159986,
+        "final_value": 10153280.24589165,
+        "survives": true,
+        "depleted_age": null,
+        "years_lasted": 47.0,
+        "spend_multiplier": 1.0
+      },
+      {
+        "key": "high_inflation",
+        "title": "High inflation",
+        "blurb": "Inflation runs hot for a decade: real returns compress and real spending rises.",
+        "portfolio_at_retirement": 1499632.827070657,
+        "withdrawal_rate": 0.2160528858473264,
+        "final_value": 9237818.709503263,
+        "survives": true,
+        "depleted_age": null,
+        "years_lasted": 47.0,
+        "spend_multiplier": 1.08
+      },
+      {
+        "key": "stagflation",
+        "title": "Low returns + high inflation",
+        "blurb": "The worst combination \u2014 depressed real returns for the whole horizon.",
+        "portfolio_at_retirement": 1477318.070922046,
+        "withdrawal_rate": 0.22337775899135617,
+        "final_value": 1900267.9830248074,
+        "survives": true,
+        "depleted_age": null,
+        "years_lasted": 47.0,
+        "spend_multiplier": 1.1
+      },
+      {
+        "key": "early_crash",
+        "title": "Crash immediately after retiring",
+        "blurb": "A 35% drawdown in the first year of retirement, then recovery.",
+        "portfolio_at_retirement": 1640907.7565538213,
+        "withdrawal_rate": 0.18282563343478234,
+        "final_value": 9292715.74439588,
+        "survives": true,
+        "depleted_age": null,
+        "years_lasted": 47.0,
+        "spend_multiplier": 1.0
+      }
+    ],
+    "base": {
+      "rows": [
+        {
+          "age": 39.0,
+          "year": 2026,
+          "working": true,
+          "opening": 12143.26,
+          "contribution": 233000.0,
+          "withdrawal": 0.0,
+          "one_off": 0.0,
+          "growth": 5435.177734999999,
+          "closing": 250578.437735
+        },
+        {
+          "age": 40.0,
+          "year": 2027,
+          "working": true,
+          "opening": 250578.437735,
+          "contribution": 235330.0,
+          "withdrawal": 0.0,
+          "one_off": 0.0,
+          "growth": 15558.28524430375,
+          "closing": 501466.7229793038
+        },
+        {
+          "age": 41.0,
+          "year": 2028,
+          "working": true,
+          "opening": 501466.7229793038,
+          "contribution": 237683.3,
+          "withdrawal": 0.0,
+          "one_off": 0.0,
+          "growth": 26208.028758375585,
+          "closing": 765358.0517376793
+        },
+        {
+          "age": 42.0,
+          "year": 2029,
+          "working": true,
+          "opening": 765358.0517376793,
+          "contribution": 240060.133,
+          "withdrawal": 0.0,
+          "one_off": 0.0,
+          "growth": 37407.64799554194,
+          "closing": 1042825.8327332212
+        },
+        {
+          "age": 43.0,
+          "year": 2030,
+          "working": true,
+          "opening": 1042825.8327332212,
+          "contribution": 242460.73433,
+          "withdrawal": 0.0,
+          "one_off": 0.0,
+          "growth": 49181.37444569985,
+          "closing": 1334467.941508921
+        },
+        {
+          "age": 44.0,
+          "year": 2031,
+          "working": true,
+          "opening": 1334467.941508921,
+          "contribution": 244885.34167330002,
+          "withdrawal": 0.0,
+          "one_off": 0.0,
+          "growth": 61554.473371600376,
+          "closing": 1640907.7565538213
+        },
+        {
+          "age": 45.0,
+          "year": 2032,
+          "working": false,
+          "opening": 1640907.7565538213,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 69264.97771439895,
+          "closing": 1707172.7342682201
+        },
+        {
+          "age": 46.0,
+          "year": 2033,
+          "working": false,
+          "opening": 1707172.7342682201,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 72064.6730228323,
+          "closing": 1776237.4072910524
+        },
+        {
+          "age": 47.0,
+          "year": 2034,
+          "working": false,
+          "opening": 1776237.4072910524,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 74982.65545804695,
+          "closing": 1848220.0627490995
+        },
+        {
+          "age": 48.0,
+          "year": 2035,
+          "working": false,
+          "opening": 1848220.0627490995,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 78023.92265114945,
+          "closing": 1923243.9854002488
+        },
+        {
+          "age": 49.0,
+          "year": 2036,
+          "working": false,
+          "opening": 1923243.9854002488,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 81193.6833831605,
+          "closing": 2001437.6687834093
+        },
+        {
+          "age": 50.0,
+          "year": 2037,
+          "working": false,
+          "opening": 2001437.6687834093,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 84497.36650609903,
+          "closing": 2082935.0352895083
+        },
+        {
+          "age": 51.0,
+          "year": 2038,
+          "working": false,
+          "opening": 2082935.0352895083,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 87940.63024098171,
+          "closing": 2167875.66553049
+        },
+        {
+          "age": 52.0,
+          "year": 2039,
+          "working": false,
+          "opening": 2167875.66553049,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 91529.3718686632,
+          "closing": 2256405.037399153
+        },
+        {
+          "age": 53.0,
+          "year": 2040,
+          "working": false,
+          "opening": 2256405.037399153,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 95269.73783011422,
+          "closing": 2348674.7752292673
+        },
+        {
+          "age": 54.0,
+          "year": 2041,
+          "working": false,
+          "opening": 2348674.7752292673,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 99168.13425343654,
+          "closing": 2444842.909482704
+        },
+        {
+          "age": 55.0,
+          "year": 2042,
+          "working": false,
+          "opening": 2444842.909482704,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 103231.23792564424,
+          "closing": 2545074.147408348
+        },
+        {
+          "age": 56.0,
+          "year": 2043,
+          "working": false,
+          "opening": 2545074.147408348,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 107466.00772800269,
+          "closing": 2649540.1551363505
+        },
+        {
+          "age": 57.0,
+          "year": 2044,
+          "working": false,
+          "opening": 2649540.1551363505,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 111879.6965545108,
+          "closing": 2758419.8516908614
+        },
+        {
+          "age": 58.0,
+          "year": 2045,
+          "working": false,
+          "opening": 2758419.8516908614,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 116479.86373393888,
+          "closing": 2871899.7154248003
+        },
+        {
+          "age": 59.0,
+          "year": 2046,
+          "working": false,
+          "opening": 2871899.7154248003,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 121274.3879766978,
+          "closing": 2990174.103401498
+        },
+        {
+          "age": 60.0,
+          "year": 2047,
+          "working": false,
+          "opening": 2990174.103401498,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 126271.48086871328,
+          "closing": 3113445.5842702114
+        },
+        {
+          "age": 61.0,
+          "year": 2048,
+          "working": false,
+          "opening": 3113445.5842702114,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 131479.70093541642,
+          "closing": 3241925.285205628
+        },
+        {
+          "age": 62.0,
+          "year": 2049,
+          "working": false,
+          "opening": 3241925.285205628,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 136907.96829993775,
+          "closing": 3375833.2535055657
+        },
+        {
+          "age": 63.0,
+          "year": 2050,
+          "working": false,
+          "opening": 3375833.2535055657,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 142565.57996061014,
+          "closing": 3515398.833466176
+        },
+        {
+          "age": 64.0,
+          "year": 2051,
+          "working": false,
+          "opening": 3515398.833466176,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 148462.22571394593,
+          "closing": 3660861.059180122
+        },
+        {
+          "age": 65.0,
+          "year": 2052,
+          "working": false,
+          "opening": 3660861.059180122,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 154608.00475036012,
+          "closing": 3812469.063930482
+        },
+        {
+          "age": 66.0,
+          "year": 2053,
+          "working": false,
+          "opening": 3812469.063930482,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 161013.44295106287,
+          "closing": 3970482.506881545
+        },
+        {
+          "age": 67.0,
+          "year": 2054,
+          "working": false,
+          "opening": 3970482.506881545,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 167689.51091574525,
+          "closing": 4135172.01779729
+        },
+        {
+          "age": 68.0,
+          "year": 2055,
+          "working": false,
+          "opening": 4135172.01779729,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 174647.6427519355,
+          "closing": 4306819.660549225
+        },
+        {
+          "age": 69.0,
+          "year": 2056,
+          "working": false,
+          "opening": 4306819.660549225,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 181899.75565820475,
+          "closing": 4485719.41620743
+        },
+        {
+          "age": 70.0,
+          "year": 2057,
+          "working": false,
+          "opening": 4485719.41620743,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 189458.2703347639,
+          "closing": 4672177.686542193
+        },
+        {
+          "age": 71.0,
+          "year": 2058,
+          "working": false,
+          "opening": 4672177.686542193,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 197336.13225640764,
+          "closing": 4866513.818798601
+        },
+        {
+          "age": 72.0,
+          "year": 2059,
+          "working": false,
+          "opening": 4866513.818798601,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 205546.83384424087,
+          "closing": 5069060.652642841
+        },
+        {
+          "age": 73.0,
+          "year": 2060,
+          "working": false,
+          "opening": 5069060.652642841,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 214104.43757416002,
+          "closing": 5280165.090217002
+        },
+        {
+          "age": 74.0,
+          "year": 2061,
+          "working": false,
+          "opening": 5280165.090217002,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 223023.60006166832,
+          "closing": 5500188.69027867
+        },
+        {
+          "age": 75.0,
+          "year": 2062,
+          "working": false,
+          "opening": 5500188.69027867,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 232319.5971642738,
+          "closing": 5729508.287442944
+        },
+        {
+          "age": 76.0,
+          "year": 2063,
+          "working": false,
+          "opening": 5729508.287442944,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 242008.35014446435,
+          "closing": 5968516.637587409
+        },
+        {
+          "age": 77.0,
+          "year": 2064,
+          "working": false,
+          "opening": 5968516.637587409,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 252106.452938068,
+          "closing": 6217623.090525476
+        },
+        {
+          "age": 78.0,
+          "year": 2065,
+          "working": false,
+          "opening": 6217623.090525476,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 262631.20057470136,
+          "closing": 6477254.291100178
+        },
+        {
+          "age": 79.0,
+          "year": 2066,
+          "working": false,
+          "opening": 6477254.291100178,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 273600.61879898247,
+          "closing": 6747854.90989916
+        },
+        {
+          "age": 80.0,
+          "year": 2067,
+          "working": false,
+          "opening": 6747854.90989916,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 285033.4949432395,
+          "closing": 7029888.4048424
+        },
+        {
+          "age": 81.0,
+          "year": 2068,
+          "working": false,
+          "opening": 7029888.4048424,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 296949.4101045914,
+          "closing": 7323837.814946991
+        },
+        {
+          "age": 82.0,
+          "year": 2069,
+          "working": false,
+          "opening": 7323837.814946991,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 309368.77268151037,
+          "closing": 7630206.5876285015
+        },
+        {
+          "age": 83.0,
+          "year": 2070,
+          "working": false,
+          "opening": 7630206.5876285015,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 322312.8533273042,
+          "closing": 7949519.440955806
+        },
+        {
+          "age": 84.0,
+          "year": 2071,
+          "working": false,
+          "opening": 7949519.440955806,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 335803.82138038275,
+          "closing": 8282323.262336188
+        },
+        {
+          "age": 85.0,
+          "year": 2072,
+          "working": false,
+          "opening": 8282323.262336188,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 349864.7828337039,
+          "closing": 8629188.045169892
+        },
+        {
+          "age": 86.0,
+          "year": 2073,
+          "working": false,
+          "opening": 8629188.045169892,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 364519.8199084279,
+          "closing": 8990707.865078319
+        },
+        {
+          "age": 87.0,
+          "year": 2074,
+          "working": false,
+          "opening": 8990707.865078319,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 379794.0322995589,
+          "closing": 9367501.897377878
+        },
+        {
+          "age": 88.0,
+          "year": 2075,
+          "working": false,
+          "opening": 9367501.897377878,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 395713.58016421535,
+          "closing": 9760215.477542093
+        },
+        {
+          "age": 89.0,
+          "year": 2076,
+          "working": false,
+          "opening": 9760215.477542093,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 412305.7289261534,
+          "closing": 10169521.206468247
+        },
+        {
+          "age": 90.0,
+          "year": 2077,
+          "working": false,
+          "opening": 10169521.206468247,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 429598.8959732834,
+          "closing": 10596120.10244153
+        },
+        {
+          "age": 91.0,
+          "year": 2078,
+          "working": false,
+          "opening": 10596120.10244153,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 447622.6993281546,
+          "closing": 11040742.801769685
+        },
+        {
+          "age": 92.0,
+          "year": 2079,
+          "working": false,
+          "opening": 11040742.801769685,
+          "contribution": 0.0,
+          "withdrawal": 3000.0,
+          "one_off": 0.0,
+          "growth": 466408.0083747691,
+          "closing": 11504150.810144454
+        }
+      ],
+      "age_now": 39.0,
+      "retirement_age": 45.0,
+      "horizon_age": 92,
+      "years_to_retirement": 6.0,
+      "retirement_years": 47.0,
+      "portfolio_at_retirement": 1640907.7565538213,
+      "final_value": 11504150.810144454,
+      "depleted_age": null,
+      "survives": true,
+      "annual_spend": 3000.0,
+      "real_return_pct": 4.225,
+      "one_off_total": 0.0
+    },
+    "failures": 0,
+    "survived": 8,
+    "worst": "Low returns + high inflation",
+    "verdict": "The plan survives all eight histories. That is a strong result \u2014 and it is a deterministic one, so read it alongside the Monte Carlo probability, not instead of it."
+  },
+  "score": {
+    "score": 58.1,
+    "coverage_pct": 90.0,
+    "components": [
+      {
+        "key": "savings_rate",
+        "label": "Savings rate",
+        "weight": 15,
+        "score": 100.0,
+        "scored": true,
+        "why": "Saving 233.0% of gross income. 35%+ scores full marks; below 5% scores zero.",
+        "points_lost": 0.0
+      },
+      {
+        "key": "portfolio_quality",
+        "label": "Portfolio quality",
+        "weight": 15,
+        "score": 50.0,
+        "scored": true,
+        "why": "Deductions for: top holding is 33% of the brokerage; 3 positions each above 10%.",
+        "points_lost": 7.5
+      },
+      {
+        "key": "retirement_funding",
+        "label": "Retirement funding",
+        "weight": 20,
+        "score": 14.0,
+        "scored": true,
+        "why": "Retirement assets are 14% of the planning target. Scored linearly to 100%.",
+        "points_lost": 17.2
+      },
+      {
+        "key": "tax_efficiency",
+        "label": "Tax efficiency",
+        "weight": 10,
+        "score": 40.0,
+        "scored": true,
+        "why": "Tax-free 0%, tax-deferred 0%, taxable 100%. Scored on having all three dials, not on the size of any one.",
+        "points_lost": 6.0
+      },
+      {
+        "key": "risk_management",
+        "label": "Risk management",
+        "weight": 10,
+        "score": 100.0,
+        "scored": true,
+        "why": "Monte Carlo survival 100%. 95% scores full marks, 50% scores zero.",
+        "points_lost": 0.0
+      },
+      {
+        "key": "healthcare",
+        "label": "Healthcare preparation",
+        "weight": 10,
+        "score": null,
+        "scored": false,
+        "why": "No healthcare plan recorded \u2014 not scored rather than scored zero.",
+        "points_lost": null
+      },
+      {
+        "key": "liquidity",
+        "label": "Liquidity",
+        "weight": 5,
+        "score": 100.0,
+        "scored": true,
+        "why": "46 months of spending in liquid assets. 12 months scores full marks.",
+        "points_lost": 0.0
+      },
+      {
+        "key": "family_goals",
+        "label": "Family goals",
+        "weight": 5,
+        "score": 60.0,
+        "scored": true,
+        "why": "0 of 1 goals have dedicated capital; $0 is being taken from the retirement portfolio.",
+        "points_lost": 2.0
+      },
+      {
+        "key": "debt",
+        "label": "Debt",
+        "weight": 5,
+        "score": 100.0,
+        "scored": true,
+        "why": "Debt service is 0% of gross income; 0 of 1 debts read PAY DOWN.",
+        "points_lost": 0.0
+      },
+      {
+        "key": "flexibility",
+        "label": "Flexibility",
+        "weight": 5,
+        "score": 0.0,
+        "scored": true,
+        "why": "0% of spending is discretionary and could be cut in a bad decade.",
+        "points_lost": 5.0
+      }
+    ],
+    "biggest_drags": [
+      {
+        "key": "retirement_funding",
+        "label": "Retirement funding",
+        "weight": 20,
+        "score": 14.0,
+        "scored": true,
+        "why": "Retirement assets are 14% of the planning target. Scored linearly to 100%.",
+        "points_lost": 17.2
+      },
+      {
+        "key": "portfolio_quality",
+        "label": "Portfolio quality",
+        "weight": 15,
+        "score": 50.0,
+        "scored": true,
+        "why": "Deductions for: top holding is 33% of the brokerage; 3 positions each above 10%.",
+        "points_lost": 7.5
+      },
+      {
+        "key": "tax_efficiency",
+        "label": "Tax efficiency",
+        "weight": 10,
+        "score": 40.0,
+        "scored": true,
+        "why": "Tax-free 0%, tax-deferred 0%, taxable 100%. Scored on having all three dials, not on the size of any one.",
+        "points_lost": 6.0
+      }
+    ],
+    "unscored": [
+      "Healthcare preparation"
+    ],
+    "note": "Scored on 90% of the total weight. Unscored components are excluded from the denominator, not counted as zero."
+  },
+  "savings_rate_pct": 233.0,
+  "annual_savings": 233000.0,
+  "implied_savings": 96800.0,
+  "actions": [
+    {
+      "priority": "HIGH",
+      "title": "Rebuild the emergency reserve",
+      "why": "Liquid cash of $0 is below the three-month floor of $800. Every other plan on this page assumes you are never a forced seller."
+    },
+    {
+      "priority": "HIGH",
+      "title": "Single-position concentration: OKLO",
+      "why": "OKLO is 33% of the brokerage account. This engine classifies rather than recommends \u2014 but a position this size means the retirement date is partly a bet on one company."
+    },
+    {
+      "priority": "HIGH",
+      "title": "Cross-border plan: US \u2192 India",
+      "why": "Retirement-account treatment, tax residency and currency exposure across a border are not modelled on this page and must not be assumed. This needs a CPA and a CA who have both worked the treaty."
+    },
+    {
+      "priority": "MEDIUM",
+      "title": "No tax-free bucket to draw on later",
+      "why": "Under 5% of financial assets are in Roth or HSA accounts. Having all three tax treatments gives you a dial over taxable income in retirement. Whether a Roth contribution or conversion makes sense for you is a CPA question \u2014 this engine does not model tax rules."
+    }
+  ],
+  "risks": [
+    {
+      "risk": "Portfolio risk",
+      "level": "MODERATE",
+      "detail": "80% equity, modelled volatility 13.8%/yr."
+    },
+    {
+      "risk": "Concentration risk",
+      "level": "HIGH",
+      "detail": "Largest single position is 33% of the brokerage."
+    },
+    {
+      "risk": "Sequence risk",
+      "level": "LOW",
+      "detail": "Deterministic path survives, but only 100% of simulated sequences do."
+    },
+    {
+      "risk": "Healthcare risk",
+      "level": "HIGH",
+      "detail": "No healthcare plan recorded. Medical inflation runs above general inflation and this plan has no line for it."
+    },
+    {
+      "risk": "Currency risk",
+      "level": "HIGH",
+      "detail": "Retiring in India with 0% of assets outside USD."
+    },
+    {
+      "risk": "Tax risk",
+      "level": "UNSCORED",
+      "detail": "This engine models no tax rules. Withdrawal figures are gross. Treatment of retirement accounts, especially across a border, needs a CPA/CA."
+    }
+  ]
+}

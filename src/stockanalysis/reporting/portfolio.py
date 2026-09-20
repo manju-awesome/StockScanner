@@ -73,8 +73,10 @@ def cap_bucket(market_cap) -> str | None:
 
 
 def _num(val) -> float | None:
+    """Parse a number, tolerating the broker's "$1,234.56" / "-8.48%" forms."""
     try:
-        v = float(str(val).replace("$", "").replace(",", "").strip())
+        v = float(str(val).replace("$", "").replace(",", "")
+                  .replace("%", "").strip())
         return v if v == v else None
     except (TypeError, ValueError):
         return None
@@ -289,24 +291,50 @@ def build_portfolio_view(positions: list[dict],
                          rows: list[dict]) -> list[dict]:
     """
     Join positions with scan rows. Each returned dict adds: Price, Value,
-    Gain_Dollars, Gain_Pct, Days_Held, Risk (dollars from price to stop for
-    the share count), Next_Action, Category, Grade, scores, and Alerts
-    (list[str]). Sorted: alerted positions first, then by position value,
-    watchlist rows last.
+    Cost_Basis, Gain_Dollars, Gain_Pct, Day_Dollars, Day_Pct, Days_Held, Risk
+    (dollars from price to stop for the share count), Next_Action, Category,
+    Grade, scores, and Alerts (list[str]). Sorted: alerted positions first,
+    then by position value, watchlist rows last.
+
+    Price/day-change come from today's scan when the ticker is in it. Holdings
+    the scan doesn't cover (ETFs, foreign listings, anything below the universe
+    filters) fall back to the broker snapshot the sync wrote into the CSV's
+    trailing columns, so they show a stale number rather than a row of dashes.
+    Price_Source says which one a row used: "scan" | "broker" | None.
     """
     by_ticker = {r.get("Ticker"): r for r in rows if r.get("Ticker")}
     view = []
     for pos in positions:
         scan = by_ticker.get(pos["Ticker"])
+        broker = pos.get("_extra") or {}
         price  = scan.get("Current Price") if scan else None
+        price_source = "scan" if price is not None else None
+        if price is None:
+            price = _num(broker.get("Last_Price"))
+            price_source = "broker" if price is not None else None
         shares = pos["Shares"] or 0.0
         cost   = pos["Avg_Cost"]
         stop   = pos.get("Stop")
+        cost_basis = round(cost * shares, 2) if (cost and shares) else None
         value  = round(price * shares, 2) if (price is not None and shares) else None
         gain = gain_pct = None
         if price is not None and cost and shares:
             gain     = round((price - cost) * shares, 2)
             gain_pct = round((price / cost - 1) * 100, 2)
+        # Today's move. The scan only knows one once today's bar exists —
+        # off-hours and at weekends its "current price" IS the prior close, so
+        # deriving from it would print a fake 0.00% on every row. Gap% is None
+        # in exactly that case, so use it as the gate and otherwise fall back
+        # to the broker's own day figures from the last real session.
+        prev_close = _num(scan.get("Prev-Day Close")) if scan else None
+        day_dollars = day_pct = None
+        if scan and scan.get("Gap%") is not None and price is not None and prev_close:
+            day_pct = round((price / prev_close - 1) * 100, 2)
+            if shares:
+                day_dollars = round((price - prev_close) * shares, 2)
+        else:
+            day_dollars = _num(broker.get("Day_Change"))
+            day_pct = _num(broker.get("Day_Change_Pct"))
         days_held = ((date.today() - pos["Entry_Date"]).days
                      if pos.get("Entry_Date") and shares else None)
         # $ at risk if the stop is honored from here; 0 once price is at/below
@@ -315,9 +343,13 @@ def build_portfolio_view(positions: list[dict],
         p = {
             **pos,
             "Price":        price,
+            "Price_Source": price_source,
+            "Cost_Basis":   cost_basis,
             "Value":        value,
             "Gain_Dollars": gain,
             "Gain_Pct":     gain_pct,
+            "Day_Dollars":  day_dollars,
+            "Day_Pct":      day_pct,
             "Days_Held":    days_held,
             "Risk":         risk,
             "Alloc_Pct":    (round(value / PORTFOLIO_VALUE * 100, 1)
@@ -350,13 +382,25 @@ def portfolio_totals(view: list[dict]) -> dict:
                   if with_gain else None)
     total_cost = sum(p["Avg_Cost"] * p["Shares"] for p in with_gain)
     total_risk = round(sum(p["Risk"] for p in held if p["Risk"] is not None), 2)
+    with_day = [p for p in held if p.get("Day_Dollars") is not None]
+    total_day = (round(sum(p["Day_Dollars"] for p in with_day), 2)
+                 if with_day else None)
+    # Value at yesterday's close for just the rows that reported a day move,
+    # so the % is that same subset's move and not diluted by the rest.
+    day_base = sum(p["Value"] for p in with_day) - (total_day or 0)
     return {
         "positions":   len(held),
         "watching":    sum(1 for p in view if p["Is_Watch"]),
         "total_value": total_value,
+        "total_cost":  round(total_cost, 2) if total_cost else None,
         "total_gain":  total_gain,
         "total_gain_pct": (round(total_gain / total_cost * 100, 2)
                            if (total_gain is not None and total_cost) else None),
+        "total_day":   total_day,
+        "total_day_pct": (round(total_day / day_base * 100, 2)
+                          if (total_day is not None and day_base > 0) else None),
+        "priced_from_broker": sum(1 for p in held
+                                  if p.get("Price_Source") == "broker"),
         "total_risk":  total_risk,
         "alerts":      sum(len(p["Alerts"]) for p in view),
         "portfolio_value": PORTFOLIO_VALUE,

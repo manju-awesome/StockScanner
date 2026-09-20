@@ -7,6 +7,7 @@ Run with: python -m unittest tests.test_alerts
 """
 import sys
 import tempfile
+import os
 import unittest
 from pathlib import Path
 
@@ -25,6 +26,10 @@ def _alert(dedup_key, priority="MEDIUM", ticker="NVDA"):
 
 class AlertsStorageTestCase(unittest.TestCase):
     def setUp(self):
+        # super() first: this class is mixed with _UnmutedTestCase below, and
+        # a setUp that does not delegate silently drops every mixin after it
+        # in the MRO.
+        super().setUp()
         self._orig_state = alerts.ALERTS_STATE_PATH
         self._orig_log = alerts.ALERTS_LOG_PATH
         self._orig_watchlists = alerts.WATCHLISTS_PATH
@@ -37,6 +42,7 @@ class AlertsStorageTestCase(unittest.TestCase):
         alerts.ALERTS_STATE_PATH = self._orig_state
         alerts.ALERTS_LOG_PATH = self._orig_log
         alerts.WATCHLISTS_PATH = self._orig_watchlists
+        super().tearDown()
 
 
 class TestMakeAlert(unittest.TestCase):
@@ -65,7 +71,29 @@ class TestPriorityRank(unittest.TestCase):
         self.assertGreater(alerts.priority_rank("WHATEVER"), alerts.priority_rank("LOW"))
 
 
-class TestDedupLifecycle(AlertsStorageTestCase):
+class _UnmutedTestCase(unittest.TestCase):
+    """Push is muted by default (alerts.DEFAULT_NOTIFY_CATEGORIES is empty).
+
+    These cases are about the SENDERS — priority gating, digest grouping — so
+    they unmute for their duration. Without this they pass vacuously: the
+    gate drops every alert before the sender does any work, and "no email was
+    sent" would look like the assertion succeeding.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._prev_notify = os.environ.get("ALERT_NOTIFY_CATEGORIES")
+        os.environ["ALERT_NOTIFY_CATEGORIES"] = "all"
+
+    def tearDown(self):
+        if self._prev_notify is None:
+            os.environ.pop("ALERT_NOTIFY_CATEGORIES", None)
+        else:
+            os.environ["ALERT_NOTIFY_CATEGORIES"] = self._prev_notify
+        super().tearDown()
+
+
+class TestDedupLifecycle(AlertsStorageTestCase, _UnmutedTestCase):
     def setUp(self):
         super().setUp()
         # avoid any real network/email/Telegram attempts during these tests
@@ -216,6 +244,74 @@ class TestDedupLifecycle(AlertsStorageTestCase):
         later = datetime.now() + timedelta(days=10)
         self.assertEqual(len(alerts.active_display_alerts(now=later)), 1)
 
+    def test_active_feed_defaults_to_newest_first(self):
+        """The feed answers "what just happened" — a week-old CRITICAL that
+        has been read every day shouldn't outrank an alert from five minutes
+        ago."""
+        import json
+        alerts.ALERTS_STATE_PATH.write_text(json.dumps({
+            "OLD:x": {"alert": _alert("OLD:x", priority="CRITICAL", ticker="OLD"),
+                      "since": "2026-07-01T09:00:00"},
+            # MEDIUM, not LOW: LOW ages out of the feed after 24h, which would
+            # remove this row for a reason unrelated to sorting.
+            "MID:x": {"alert": _alert("MID:x", priority="MEDIUM", ticker="MID"),
+                      "since": "2026-07-20T09:00:00"},
+            "NEW:x": {"alert": _alert("NEW:x", priority="MEDIUM", ticker="NEW"),
+                      "since": "2026-07-26T09:00:00"},
+        }))
+        from datetime import datetime
+        now = datetime(2026, 7, 26, 10, 0, 0)
+        order = [a["ticker"] for a in alerts.active_display_alerts(now=now)]
+        self.assertEqual(order, ["NEW", "MID", "OLD"])
+
+    def test_oldest_sort_reverses_the_feed(self):
+        import json
+        from datetime import datetime
+        alerts.ALERTS_STATE_PATH.write_text(json.dumps({
+            "A:x": {"alert": _alert("A:x", ticker="A"), "since": "2026-07-01T09:00:00"},
+            "B:x": {"alert": _alert("B:x", ticker="B"), "since": "2026-07-26T09:00:00"},
+        }))
+        now = datetime(2026, 7, 26, 10, 0, 0)
+        self.assertEqual([a["ticker"] for a in
+                          alerts.active_display_alerts(now=now, sort="oldest")],
+                         ["A", "B"])
+
+    def test_priority_sort_is_newest_first_inside_each_tier(self):
+        import json
+        from datetime import datetime
+        alerts.ALERTS_STATE_PATH.write_text(json.dumps({
+            "H1:x": {"alert": _alert("H1:x", priority="HIGH", ticker="H1"),
+                     "since": "2026-07-20T09:00:00"},
+            "H2:x": {"alert": _alert("H2:x", priority="HIGH", ticker="H2"),
+                     "since": "2026-07-26T09:00:00"},
+            "M1:x": {"alert": _alert("M1:x", priority="MEDIUM", ticker="M1"),
+                     "since": "2026-07-26T09:30:00"},
+        }))
+        now = datetime(2026, 7, 26, 10, 0, 0)
+        order = [a["ticker"] for a in
+                 alerts.active_display_alerts(now=now, sort="priority")]
+        self.assertEqual(order, ["H2", "H1", "M1"])
+
+    def test_feed_alerts_carry_since_without_mutating_the_store(self):
+        """The feed adds display fields to copies — writing them back into the
+        state file would persist presentation data into the dedup store."""
+        a = _alert("NVDA:breakout", priority="HIGH")
+        alerts.raise_alerts([a], {"NVDA:breakout"})
+        feed = alerts.active_display_alerts()
+        self.assertTrue(feed[0]["since"])
+        stored = alerts.load_active()["NVDA:breakout"]["alert"]
+        self.assertNotIn("since", stored)
+
+    def test_missing_since_falls_back_to_created_at(self):
+        """A hand-edited or older state file must still sort, not sink."""
+        import json
+        alerts.ALERTS_STATE_PATH.write_text(json.dumps({
+            "X:y": {"alert": _alert("X:y", ticker="X")},        # no "since"
+        }))
+        feed = alerts.active_display_alerts()
+        self.assertEqual(len(feed), 1)
+        self.assertTrue(feed[0]["since"])
+
     def test_other_watchlist_keys_survive_the_sync(self):
         import json
         alerts.WATCHLISTS_PATH.write_text(json.dumps({"AI": ["NVDA", "AMD"]}))
@@ -226,7 +322,7 @@ class TestDedupLifecycle(AlertsStorageTestCase):
         self.assertEqual(wl[alerts.ALERT_WATCHLIST_KEY], ["TSLA"])
 
 
-class TestEmailBatching(unittest.TestCase):
+class TestEmailBatching(_UnmutedTestCase):
     def test_only_critical_and_high_trigger_email(self):
         sent = {}
 
@@ -257,7 +353,7 @@ class TestEmailBatching(unittest.TestCase):
         self.assertFalse(alerts.send_alert_emails([_alert("A:x", priority="LOW")]))
 
 
-class TestTelegramBatching(unittest.TestCase):
+class TestTelegramBatching(_UnmutedTestCase):
     def test_only_critical_and_high_trigger_telegram(self):
         sent = {}
 
@@ -285,6 +381,147 @@ class TestTelegramBatching(unittest.TestCase):
 
     def test_no_urgent_alerts_returns_false_without_sending(self):
         self.assertFalse(alerts.send_alert_telegram([_alert("A:x", priority="LOW")]))
+
+
+class TestPruning(AlertsStorageTestCase):
+    """Date-based deletion (scripts/cleanup_alerts.py).
+
+    The log is a record; the active set is the dedup store, and deleting from
+    it is a notification decision — a still-true condition whose key is gone
+    fires again, and CRITICAL/HIGH re-email. These tests pin that difference.
+    """
+
+    def _seed_log(self, stamps):
+        import json
+        alerts.ALERTS_LOG_PATH.write_text(json.dumps([
+            {**_alert(f"T{i}:x", ticker=f"T{i}"), "created_at": s}
+            for i, s in enumerate(stamps)]))
+
+    def _seed_active(self, entries):
+        """entries: {key: (since, priority)}"""
+        import json
+        alerts.ALERTS_STATE_PATH.write_text(json.dumps({
+            key: {"alert": _alert(key, priority=prio, ticker=key.split(":")[0]),
+                  "since": since}
+            for key, (since, prio) in entries.items()}))
+
+    # ── log ──────────────────────────────────────────────────────────────────
+    def test_prune_log_removes_only_entries_older_than_the_cutoff(self):
+        from datetime import datetime
+        self._seed_log(["2026-07-01T09:00:00", "2026-07-20T09:00:00",
+                        "2026-07-26T09:00:00"])
+        res = alerts.prune_log(before=datetime(2026, 7, 15))
+        self.assertEqual((res["removed"], res["kept"], res["total"]), (1, 2, 3))
+        self.assertEqual(res["oldest_kept"], "2026-07-20T09:00:00")
+
+    def test_prune_log_by_days(self):
+        from datetime import datetime
+        now = datetime(2026, 7, 27, 12, 0, 0)
+        self._seed_log(["2026-07-01T09:00:00", "2026-07-26T09:00:00"])
+        res = alerts.prune_log(days=7, now=now)
+        self.assertEqual(res["removed"], 1)
+
+    def test_dry_run_writes_nothing(self):
+        import json
+        from datetime import datetime
+        self._seed_log(["2026-07-01T09:00:00", "2026-07-26T09:00:00"])
+        res = alerts.prune_log(before=datetime(2026, 7, 15), dry_run=True)
+        self.assertEqual(res["removed"], 1)
+        self.assertTrue(res["dry_run"])
+        self.assertEqual(len(json.loads(alerts.ALERTS_LOG_PATH.read_text())), 2)
+
+    def test_unparseable_timestamps_are_kept_not_guessed(self):
+        """A delete tool that can't read a date must keep the record."""
+        from datetime import datetime
+        self._seed_log(["not a date", "", "2026-07-01T09:00:00"])
+        res = alerts.prune_log(before=datetime(2026, 7, 15))
+        self.assertEqual(res["removed"], 1)
+        self.assertEqual(res["kept"], 2)
+
+    def test_missing_log_file_is_not_an_error(self):
+        from datetime import datetime
+        res = alerts.prune_log(before=datetime(2026, 7, 15))
+        self.assertEqual((res["removed"], res["total"]), (0, 0))
+
+    def test_days_zero_deletes_everything_older_than_now(self):
+        from datetime import datetime
+        now = datetime(2026, 7, 27, 12, 0, 0)
+        self._seed_log(["2026-07-01T09:00:00", "2026-07-27T11:00:00"])
+        self.assertEqual(alerts.prune_log(days=0, now=now)["removed"], 2)
+
+    def test_negative_days_is_rejected(self):
+        with self.assertRaises(ValueError):
+            alerts.prune_log(days=-1)
+
+    def test_requires_days_or_before(self):
+        with self.assertRaises(ValueError):
+            alerts.prune_log()
+
+    # ── active set ───────────────────────────────────────────────────────────
+    def test_prune_active_reports_refire_risk(self):
+        """CRITICAL/HIGH keys re-notify if their condition still holds, so the
+        count has to surface before anything is deleted."""
+        from datetime import datetime
+        self._seed_active({
+            "A:x": ("2026-07-01T09:00:00", "CRITICAL"),
+            "B:x": ("2026-07-01T09:00:00", "HIGH"),
+            "C:x": ("2026-07-01T09:00:00", "LOW"),
+        })
+        res = alerts.prune_active(before=datetime(2026, 7, 15), dry_run=True)
+        self.assertEqual(res["removed"], 3)
+        self.assertEqual(res["refire_risk"], 2)
+
+    def test_priority_filter_spares_the_notifying_tiers(self):
+        from datetime import datetime
+        self._seed_active({
+            "A:x": ("2026-07-01T09:00:00", "CRITICAL"),
+            "C:x": ("2026-07-01T09:00:00", "LOW"),
+            "D:x": ("2026-07-01T09:00:00", "MEDIUM"),
+        })
+        res = alerts.prune_active(before=datetime(2026, 7, 15),
+                                  priorities=("LOW", "MEDIUM"))
+        self.assertEqual(res["removed"], 2)
+        self.assertEqual(res["refire_risk"], 0)
+        self.assertIn("A:x", alerts.load_active())
+
+    def test_recent_active_alerts_are_untouched(self):
+        from datetime import datetime
+        self._seed_active({"A:x": ("2026-07-26T09:00:00", "HIGH")})
+        res = alerts.prune_active(before=datetime(2026, 7, 15))
+        self.assertEqual(res["removed"], 0)
+        self.assertIn("A:x", alerts.load_active())
+
+    def test_pruning_active_rewrites_the_derived_watchlist(self):
+        """ALERT_TICKERS is derived from the active set — leaving it stale
+        would keep listing tickers whose alerts were just deleted."""
+        import json
+        from datetime import datetime
+        a = _alert("TSLA:breakout", priority="CRITICAL", ticker="TSLA")
+        alerts.raise_alerts([a], {"TSLA:breakout"})
+        wl = json.loads(alerts.WATCHLISTS_PATH.read_text())
+        self.assertEqual(wl[alerts.ALERT_WATCHLIST_KEY], ["TSLA"])
+
+        alerts.prune_active(before=datetime(2099, 1, 1))
+        wl = json.loads(alerts.WATCHLISTS_PATH.read_text())
+        self.assertEqual(wl[alerts.ALERT_WATCHLIST_KEY], [])
+
+    def test_active_dry_run_writes_nothing(self):
+        from datetime import datetime
+        self._seed_active({"A:x": ("2026-07-01T09:00:00", "LOW")})
+        res = alerts.prune_active(before=datetime(2026, 7, 15), dry_run=True)
+        self.assertEqual(res["removed"], 1)
+        self.assertIn("A:x", alerts.load_active())
+
+    def test_pruned_key_can_fire_again(self):
+        """The documented consequence, pinned: this is why --active is opt-in."""
+        from datetime import datetime
+        a = _alert("NVDA:oversold", priority="MEDIUM")
+        alerts.raise_alerts([a], {"NVDA:oversold"})
+        self.assertEqual(alerts.raise_alerts([a], {"NVDA:oversold"}), [])   # deduped
+
+        alerts.prune_active(before=datetime(2099, 1, 1))
+        refired = alerts.raise_alerts([a], {"NVDA:oversold"})
+        self.assertEqual(len(refired), 1)
 
 
 if __name__ == "__main__":

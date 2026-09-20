@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -45,8 +46,65 @@ MAX_LOG = 500
 
 PRIORITIES = ("CRITICAL", "HIGH", "MEDIUM", "LOW")
 _PRIORITY_RANK = {p: i for i, p in enumerate(PRIORITIES)}
+# Categories that own their own notification channel and must not also
+# appear in the general digest. core.longterm.entry_alerts sends its own mail
+# under a fixed subject ("Longterm swing trades") so a standing list of
+# orders to work stays filterable; without this exclusion the same alert
+# would arrive twice under two different subjects.
+SELF_EMAILING_CATEGORIES = ("longterm_entry",)
+
 EMAIL_PRIORITIES = ("CRITICAL", "HIGH")  # tiers worth interrupting a workday for —
                                           # also gates the Telegram push digest below
+
+# ── Notification mute ────────────────────────────────────────────────────────
+# Which categories may PUSH (email + Telegram). Empty by default: the digest
+# was the bulk of the inbox, and the three things worth interrupting a day for
+# each own a dedicated channel that does not route through here —
+#
+#     Pre-Market Brief    core/premarket_brief.py
+#     Market Movers       scanners/market_movers.email_movers()
+#     Longterm swing …    core/longterm/entry_alerts.send_entry_email()
+#
+# This mutes the PUSH only. Every alert still lands on the Alerts page in
+# full, still dedups, still logs — muting is about the inbox, not about
+# throwing away the signal, and a category re-enabled below immediately
+# starts pushing again with no other change.
+#
+# ALERT_NOTIFY_CATEGORIES overrides: a comma-separated list of categories,
+# or "all" for the previous behaviour.
+DEFAULT_NOTIFY_CATEGORIES: tuple[str, ...] = ()
+
+
+def notify_categories() -> set[str] | None:
+    """Categories allowed to push; None means "no restriction".
+
+    Read per call rather than captured at import so the env var can be
+    changed while the workstation is running — the scheduler lives in a
+    long-running process and a restart to unmute would be a poor trade.
+    """
+    raw = os.environ.get("ALERT_NOTIFY_CATEGORIES")
+    if raw is None:
+        return set(DEFAULT_NOTIFY_CATEGORIES)
+    if raw.strip().lower() == "all":
+        return None
+    return {c.strip() for c in raw.split(",") if c.strip()}
+
+
+def notifiable(alerts: list[dict]) -> list[dict]:
+    """The alerts a push channel is allowed to send, in one place so email
+    and Telegram cannot drift on what counts as urgent or muted."""
+    allowed = notify_categories()
+    out = []
+    for a in alerts:
+        category = a.get("category")
+        if category in SELF_EMAILING_CATEGORIES:
+            continue                      # has its own channel — would double
+        if a.get("priority") not in EMAIL_PRIORITIES:
+            continue
+        if allowed is not None and category not in allowed:
+            continue
+        out.append(a)
+    return out
 
 
 def priority_rank(p: str) -> int:
@@ -181,7 +239,7 @@ def send_alert_emails(alerts: list[dict]) -> bool:
     groups (Earnings / News Catalyst / Day Trade / Swing Trades / Long-Term
     Investment / Options Setups). Returns False without raising if there's
     nothing to send or no RESEND_API_KEY — callers can proceed either way."""
-    urgent = [a for a in alerts if a["priority"] in EMAIL_PRIORITIES]
+    urgent = notifiable(alerts)
     if not urgent:
         return False
 
@@ -240,7 +298,7 @@ def send_alert_telegram(alerts: list[dict]) -> bool:
     send_alert_emails, so both channels agree on what's urgent enough to
     interrupt. Returns False without raising if there's nothing to send or
     no TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID — callers can proceed either way."""
-    urgent = [a for a in alerts if a["priority"] in EMAIL_PRIORITIES]
+    urgent = notifiable(alerts)
     if not urgent:
         return False
 
@@ -287,12 +345,55 @@ def _is_expired(rec: dict, now: datetime | None = None) -> bool:
     return (now or datetime.now()) - since > timedelta(hours=LOW_TTL_HOURS)
 
 
-def active_display_alerts(now: datetime | None = None) -> list[dict]:
-    """Active alerts for the webapp feed: priority-sorted, minus LOW alerts
-    older than LOW_TTL_HOURS."""
+def alert_since(rec: dict) -> str:
+    """When a condition became active. Falls back to the alert's own
+    created_at, which is what `since` is seeded from — so a hand-edited or
+    older state file still sorts rather than dropping to the bottom."""
+    return rec.get("since") or (rec.get("alert") or {}).get("created_at") or ""
+
+
+SORT_MODES = ("newest", "oldest", "priority")
+
+
+def active_display_alerts(now: datetime | None = None,
+                          sort: str = "newest") -> list[dict]:
+    """Active alerts for the webapp feed, minus LOW alerts older than
+    LOW_TTL_HOURS.
+
+    sort:
+      "newest"   most recently fired first (default — what the feed is for)
+      "oldest"   longest-standing conditions first
+      "priority" CRITICAL→LOW, newest first inside each tier
+
+    Default is newest-first rather than priority-first because the feed
+    answers "what just happened"; a week-old CRITICAL that has been read
+    every day since shouldn't outrank an alert that fired five minutes ago.
+    Priority ordering is still one dropdown away.
+
+    Each returned alert carries a `since` key copied from its state record.
+    The dicts are copies — the state file's alert payloads are what get
+    written back on the next reconcile, and adding display fields to them
+    would persist presentation data into the store.
+    """
     recs = [r for r in load_active().values() if not _is_expired(r, now)]
-    return sorted((r["alert"] for r in recs),
-                  key=lambda a: priority_rank(a["priority"]))
+    alerts = [{**r["alert"], "since": alert_since(r)} for r in recs]
+    if sort == "priority":
+        alerts.sort(key=lambda a: (priority_rank(a["priority"]),
+                                   _neg_time_key(a.get("since"))))
+    elif sort == "oldest":
+        alerts.sort(key=lambda a: a.get("since") or "")
+    else:
+        alerts.sort(key=lambda a: a.get("since") or "", reverse=True)
+    return alerts
+
+
+def _neg_time_key(since: str | None):
+    """Sort key that puts newer timestamps first without reversing the whole
+    tuple — lets priority stay ascending while time runs descending."""
+    try:
+        return -datetime.fromisoformat(since).timestamp() if since else 0.0
+    except (ValueError, TypeError):
+        return 0.0
 
 
 def _sync_alert_watchlist(active: dict) -> None:
@@ -322,6 +423,122 @@ def _sync_alert_watchlist(active: dict) -> None:
         WATCHLISTS_PATH.write_text(json.dumps(watchlists, indent=1))
     except Exception as e:
         log.warning("ALERT_TICKERS watchlist sync failed: %s", e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PRUNING — delete alerts by date
+#
+# Two stores, two very different risk profiles:
+#
+#   alerts_log.json    append-only history. Pruning it loses a record and
+#                      nothing else. Safe.
+#   alerts_state.json  the live dedup set. Deleting a key here does NOT just
+#                      remove a row — it tells the engine it has never seen
+#                      that condition, so a condition that is still true will
+#                      fire again on the next scan and (at CRITICAL/HIGH) send
+#                      a fresh email and Telegram push. That is why pruning
+#                      the active set is opt-in and reports how many of the
+#                      keys it would drop are email-tier.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _cutoff(days: int | None = None, before: datetime | None = None,
+            now: datetime | None = None) -> datetime:
+    """Resolve --days / --before into one cutoff. Anything strictly older is
+    eligible for deletion."""
+    if before is not None:
+        return before
+    if days is None:
+        raise ValueError("pass days= or before=")
+    if days < 0:
+        raise ValueError("days must be >= 0")
+    return (now or datetime.now()) - timedelta(days=days)
+
+
+def _older_than(stamp: str | None, cutoff: datetime) -> bool:
+    """True when `stamp` is parseable and strictly older than the cutoff.
+
+    An unparseable or missing timestamp is treated as NOT old enough — a
+    delete tool that can't read a date must keep the record, not guess.
+    """
+    if not stamp:
+        return False
+    try:
+        return datetime.fromisoformat(str(stamp)) < cutoff
+    except (ValueError, TypeError):
+        return False
+
+
+def prune_log(days: int | None = None, before: datetime | None = None,
+              dry_run: bool = False, now: datetime | None = None) -> dict:
+    """Delete alert-log entries older than the cutoff.
+
+    Returns {"removed", "kept", "total", "cutoff", "oldest_kept", "dry_run"}.
+    """
+    cutoff = _cutoff(days, before, now)
+    entries = []
+    if ALERTS_LOG_PATH.exists():
+        try:
+            entries = json.loads(ALERTS_LOG_PATH.read_text())
+        except (OSError, ValueError):
+            entries = []
+    kept = [e for e in entries if not _older_than(e.get("created_at"), cutoff)]
+    removed = len(entries) - len(kept)
+    if removed and not dry_run:
+        ALERTS_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        ALERTS_LOG_PATH.write_text(json.dumps(kept, indent=2))
+    stamps = [e.get("created_at") for e in kept if e.get("created_at")]
+    return {
+        "removed": removed, "kept": len(kept), "total": len(entries),
+        "cutoff": cutoff.isoformat(timespec="seconds"),
+        "oldest_kept": min(stamps) if stamps else None,
+        "dry_run": dry_run,
+    }
+
+
+def prune_active(days: int | None = None, before: datetime | None = None,
+                 dry_run: bool = False, priorities: tuple[str, ...] | None = None,
+                 now: datetime | None = None) -> dict:
+    """Delete active-alert keys whose condition has been standing since before
+    the cutoff.
+
+    `priorities` restricts the purge to those tiers (e.g. ("LOW", "MEDIUM")),
+    which is the safe way to use this: it clears stale low-grade noise without
+    re-triggering the email/Telegram tiers.
+
+    Returns a summary including `refire_risk` — how many removed keys are
+    CRITICAL/HIGH and would therefore re-notify if their condition still
+    holds on the next scan.
+    """
+    cutoff = _cutoff(days, before, now)
+    active = load_active()
+    total = len(active)
+    doomed = {}
+    for key, rec in active.items():
+        if not _older_than(alert_since(rec), cutoff):
+            continue
+        if priorities and (rec.get("alert") or {}).get("priority") not in priorities:
+            continue
+        doomed[key] = rec
+
+    refire = sum(1 for r in doomed.values()
+                 if (r.get("alert") or {}).get("priority") in EMAIL_PRIORITIES)
+    if doomed and not dry_run:
+        for key in doomed:
+            del active[key]
+        save_active(active)
+        # The ALERT_TICKERS watchlist is derived from the active set, so it
+        # has to be rewritten here too — otherwise it keeps listing tickers
+        # whose alerts were just deleted.
+        _sync_alert_watchlist(active)
+    return {
+        "removed": len(doomed),
+        "kept": total - len(doomed),
+        "total": total,
+        "cutoff": cutoff.isoformat(timespec="seconds"),
+        "refire_risk": refire,
+        "removed_keys": sorted(doomed),
+        "dry_run": dry_run,
+    }
 
 
 def raise_alerts(current_alerts: list[dict], checked_keys: set[str]) -> list[dict]:

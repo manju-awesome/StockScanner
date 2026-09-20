@@ -25,19 +25,48 @@ OUTPUT_DIR   = PROJECT_ROOT / "data" / "output"
 DATA_DIR     = PROJECT_ROOT / "data"
 
 
-def tv_url(ticker: str) -> str:
+def tv_url(ticker: str, interval: str | None = None) -> str:
     """TradingView chart URL for a ticker. No exchange prefix — TradingView
     resolves it (hardcoding NASDAQ: would break NYSE names); '-' share
-    classes become '.' (yfinance's BRK-B is TradingView's BRK.B)."""
-    return f"https://www.tradingview.com/chart/?symbol={str(ticker).replace('-', '.')}"
+    classes become '.' (yfinance's BRK-B is TradingView's BRK.B).
 
+    `interval` pins the chart timeframe (e.g. "5" for 5-minute). The swing
+    pages leave it off and get the user's default chart; the Day Trade pages
+    pass "5" so the chart you land on matches the timeframe the signal was
+    computed on."""
+    url = f"https://www.tradingview.com/chart/?symbol={str(ticker).replace('-', '.')}"
+    return f"{url}&interval={interval}" if interval else url
+
+# Ordered by how the day actually runs: the two decision engines first
+# (intraday, then long-term), then the pipeline that feeds them
+# (scan → screen → research), then everything that reviews or configures.
 NAV = (("dashboard", "/", "🏠", "Dashboard"),
-       ("ai-sentiment", "/ai-sentiment", "🤖", "AI Sentiment"),
+       ("stockdaytrade", "/stockdaytrade", "🔥", "StockDayTrade"),
+       ("longterm",  "/longterm", "🏛️", "Long-Term"),
+       # Above the scanners because it is the read you take before them:
+       # which regime each name is in decides whether a scanner hit is a
+       # setup or a falling knife.
+       ("trend",     "/trend", "📐", "Trend Regime"),
+       ("csp",       "/csp", "🪙", "CSP"),
+       ("shortside", "/shortside", "⚖️", "Long/Short"),
+       ("leaders",   "/leaders", "🧭", "Sector Leaders"),
+       ("compounder", "/compounder", "🚀", "Compounders"),
        ("scanner",   "/scanner", "📡", "Scanner"),
+       ("screener",  "/screener", "🔬", "Screener"),
+       # After the screens and before Research: it is a second opinion on a
+       # name you already have a view on, not a place to go looking for one.
+       # Its data is quarterly and months old, so it belongs nowhere near the
+       # daily scanners in the reading order.
+       ("institutional", "/institutional", "🏦", "Institutional"),
        ("research",  "/research", "🔎", "Research"),
+       ("ai-sentiment", "/ai-sentiment", "🤖", "AI Sentiment"),
        ("portfolio", "/portfolio", "💼", "Portfolio"),
+       # Next to Portfolio because it consumes it: same holdings, a
+       # horizon of decades instead of quarters.
+       ("retirement", "/retirement", "🎯", "Retirement"),
        ("journal",   "/journal", "📓", "Journal"),
        ("alerts",    "/alerts", "🔔", "Alerts"),
+       ("daytrade",  "/daytrade", "⚡", "Day Trade"),
        ("automation","/automation", "⚙️", "Automation"))
 
 _STATUS = {
@@ -273,6 +302,11 @@ const _justSubmitted = new Set();   // kinds this tab started, not yet observed
 async function pollJobs() {
   try {
     const res = await fetch('/api/jobs');
+    // This poll doubles as the session heartbeat: it's the one request every
+    // page makes on a timer, so an idle-expired session shows up here first.
+    // Without this the page would sit there looking live while every button
+    // silently 401s.
+    if (res.status === 401) { window.location.href = '/login'; return; }
     const jobs = await res.json();
     renderJobTray(jobs);
     for (const j of jobs) {
@@ -332,38 +366,67 @@ async function toggleWatchlist(name, ticker, btn) {
 
 
 def render_layout(active: str, title: str, body: str,
-                  extra_js: str = "") -> str:
+                  extra_js: str = "", user: str | None = None) -> str:
     navlinks = "".join(
         f'<a class="navlink{" active" if key == active else ""}" href="{href}">'
         f'<span>{icon}</span><span>{label}</span></a>'
         for key, href, icon, label in NAV)
 
-    toolbar = """
+    # Sign-out is a POST, not a link: a GET that ends your session can be
+    # fired by any <img> tag or prefetch on a page you happen to open.
+    signout = (f'<form method="POST" action="/logout" style="margin:0">'
+               f'<button class="btn secondary" type="submit" '
+               f'title="Signed in as {esc(user)}">Sign out</button></form>'
+               if user else "")
+
+    toolbar = f"""
       <button class="btn" onclick="openModal('modal-scan')">+ New Scan</button>
       <button class="btn secondary" onclick="openModal('modal-research')">+ Refresh Research</button>
       <button class="btn secondary" onclick="openModal('modal-news')">+ Update News</button>
       <a class="btn secondary" href="/portfolio" style="text-decoration:none;display:inline-flex;align-items:center">Portfolio</a>
       <a class="btn secondary" href="/automation" style="text-decoration:none;display:inline-flex;align-items:center">Settings</a>
+      {signout}
     """
 
+    # load_watchlists(), not a raw read: watchlists.json nests AI sublists on
+    # disk, so a raw read sees {"AI": {...}} and would both miscount AI (dict
+    # keys, not tickers) and drop every "AI: *" sublist from these pickers.
+    from stockanalysis.webapp.api import ALL_UNIVERSES_SENTINEL
     try:
-        watchlists = json.loads((DATA_DIR / "watchlists.json").read_text())
+        from stockanalysis.reporting.research import (
+            load_watchlists, tree_ordered_names, SUBLIST_SEP)
+        watchlists = load_watchlists()
     except Exception:
-        watchlists = {}
+        watchlists, SUBLIST_SEP = {}, ": "
+        tree_ordered_names = list
     builtin_universes = ("daytrade", "watchlist", "longterm", "dividend", "sp500")
-    universe_opts = '<optgroup label="Built-in">' + "".join(
+
+    def _opt(name: str, tickers) -> str:
+        """Sublists render indented under their parent by leaf name; the
+        value stays the full "AI: Power" the backend resolves."""
+        depth = SUBLIST_SEP in name
+        label = name.split(SUBLIST_SEP, 1)[1] if depth else name
+        pad = "&nbsp;&nbsp;└ " if depth else ""
+        return f'<option value="{esc(name)}">{pad}{esc(label)} ({len(tickers)})</option>'
+
+    # "ALL" sweeps every list rather than making the user ⌘-click 30 options.
+    all_tickers = {t for v in watchlists.values() for t in (v or [])}
+    all_opt = (f'<option value="{ALL_UNIVERSES_SENTINEL}">— ALL tickers '
+               f'({len(all_tickers)}) —</option>')
+
+    user_names = tree_ordered_names(
+        n for n in sorted(watchlists) if watchlists.get(n) and n not in builtin_universes)
+
+    universe_opts = all_opt + '<optgroup label="Built-in">' + "".join(
         f'<option value="{u}">{u}</option>' for u in builtin_universes
     ) + '</optgroup>'
-    if watchlists:
+    if user_names:
         universe_opts += '<optgroup label="Watchlists">' + "".join(
-            f'<option value="{esc(name)}">{esc(name)} ({len(tickers)})</option>'
-            for name, tickers in sorted(watchlists.items())
-            if tickers and name not in builtin_universes
-        ) + '</optgroup>'
+            _opt(n, watchlists[n]) for n in user_names) + '</optgroup>'
 
-    watchlist_opts = "".join(
-        f'<option value="{esc(name)}">{esc(name)} ({len(tickers)})</option>'
-        for name, tickers in sorted(watchlists.items()) if tickers)
+    watchlist_opts = all_opt + "".join(
+        _opt(n, watchlists[n])
+        for n in tree_ordered_names(n for n in sorted(watchlists) if watchlists.get(n)))
 
     modals = f"""
     <dialog id="modal-scan">
@@ -441,5 +504,6 @@ def render_layout(active: str, title: str, body: str,
 </body></html>"""
 
 
-def render_page(active: str, title: str, body: str, extra_js: str = "") -> bytes:
-    return render_layout(active, title, body, extra_js).encode()
+def render_page(active: str, title: str, body: str, extra_js: str = "",
+                user: str | None = None) -> bytes:
+    return render_layout(active, title, body, extra_js, user).encode()
